@@ -9553,6 +9553,11 @@ void CalcOutsideSurfTemp(EnergyPlusData &state,
             }
             // Outside Heat Balance case: Other Side Conditions Model
         } else { //( Surface(SurfNum)%OSCMPtr > 0 ) THEN
+                // ``` Override the underlying solar irradiation
+                if (state.dataSurface->OSCM(surface.OSCMPtr).EMSOverrideOnSurfTotSolAbs) {
+                    state.dataHeatBalSurf->SurfOpaqQRadSWOutAbs(SurfNum) = state.dataSurface->OSCM(surface.OSCMPtr).SurfTotSolAbs;
+                }
+                // ```
             // ```
             // For the validation part, here is the new EMS actuator to set the surface temperature
             if (!state.dataSurface->OSCM(surface.OSCMPtr).EMSOverrideOnSurfOutTemp) {

@@ -12171,6 +12171,14 @@ namespace SurfaceGeometry {
                                  "[C]",
                                  state.dataSurface->OSCM(OSCMNum).EMSOverrideOnSurfOutTemp,
                                  state.dataSurface->OSCM(OSCMNum).SurfOutTemp);
+                // ``` New EMS actuator for the underlying surface solar irradiation
+                SetupEMSActuator(state,
+                                 "SurfaceProperty:ExteriorNaturallyVentedCavity",
+                                 state.dataSurface->OSCM(OSCMNum).Name,
+                                 "Underlying Surface Solar Irradiation",
+                                 "[W/m2]",
+                                 state.dataSurface->OSCM(OSCMNum).EMSOverrideOnSurfTotSolAbs,
+                                 state.dataSurface->OSCM(OSCMNum).SurfTotSolAbs);
                 // ``` New EMS actuator for the baffle temperature
                 SetupEMSActuator(state,
                                  "SurfaceProperty:ExteriorNaturallyVentedCavity",
