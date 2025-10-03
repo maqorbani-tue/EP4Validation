@@ -9810,6 +9810,8 @@ void CalcExteriorVentedCavity(EnergyPlusData &state, int const SurfNum, Real64 o
                                                           state.dataHeatBal->ExtVentedCavity(CavNum).QdotSource,
                                                           TmpTscoll,
                                                           TmpTaPlen,
+                                                          state.dataSurface->OSCM(thisOSCM).EMSOverrideOnSurfTotSolAbs,
+                                                          state.dataSurface->OSCM(thisOSCM).SurfTotSolAbs,
                                                           state.dataSurface->OSCM(thisOSCM).EMSOverrideOnBaffleTemp,
                                                           state.dataSurface->OSCM(thisOSCM).BaffleTemp,
                                                           state.dataSurface->OSCM(thisOSCM).EMSOverrideOnCavityAirTemp,

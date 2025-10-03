@@ -217,6 +217,8 @@ namespace TranspiredCollector {
                                       Real64 const QdotSource,                    // Source/sink term, e.g. electricity exported from solar cell [W]
                                       Real64 &TsBaffle,                           // Temperature of baffle (both sides) use lagged value on input [C]
                                       Real64 &TaGap, // Temperature of air gap (assumed mixed) use lagged value on input [C]
+                                      bool const EMSOverrideOnSurfTotSolAbs,
+                                      Real64 const SurfTotSolAbs,
                                       bool const EMSOverrideOnBaffleTemp,
                                       Real64 const BaffleTemp,
                                       bool const EMSOverrideOnCavityAirTemp,

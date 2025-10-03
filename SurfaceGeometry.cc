@@ -12175,7 +12175,7 @@ namespace SurfaceGeometry {
                 SetupEMSActuator(state,
                                  "SurfaceProperty:ExteriorNaturallyVentedCavity",
                                  state.dataSurface->OSCM(OSCMNum).Name,
-                                 "Underlying Surface Solar Irradiation",
+                                 "Underlying Surface Absorbed Solar Irradiation",
                                  "[W/m2]",
                                  state.dataSurface->OSCM(OSCMNum).EMSOverrideOnSurfTotSolAbs,
                                  state.dataSurface->OSCM(OSCMNum).SurfTotSolAbs);

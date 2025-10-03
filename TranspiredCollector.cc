@@ -1918,7 +1918,7 @@ namespace TranspiredCollector {
         if (present(VdotBuoyRpt)) VdotBuoyRpt = VdotThermal;
     }
 
-    // ```
+    // ``` This is a function overload
     void CalcPassiveExteriorBaffleGap(EnergyPlusData &state,
                                       const Array1D_int &SurfPtrARR, // Array of indexes pointing to Surface structure in DataSurfaces
                                       Real64 const VentArea,         // Area available for venting the gap [m2]
@@ -1934,6 +1934,8 @@ namespace TranspiredCollector {
                                       Real64 const QdotSource,                    // Source/sink term, e.g. electricity exported from solar cell [W]
                                       Real64 &TsBaffle,                           // Temperature of baffle (both sides) use lagged value on input [C]
                                       Real64 &TaGap, // Temperature of air gap (assumed mixed) use lagged value on input [C]
+                                      bool const EMSOverrideOnSurfTotSolAbs,
+                                      Real64 const SurfTotSolAbs,
                                       bool const EMSOverrideOnBaffleTemp,
                                       Real64 const BaffleTemp,
                                       bool const EMSOverrideOnCavityAirTemp,
@@ -2158,9 +2160,16 @@ namespace TranspiredCollector {
         if (!ICSCollectorIsOn) {
             // ```
             if (!EMSOverrideOnBaffleTemp) {
+                if (EMSOverrideOnSurfTotSolAbs) {
+                    TsBaffle = (SurfTotSolAbs + HExt * Tamb + HrAtm * Tamb + 
+                    HrSky * state.dataEnvrn->SkyTemp + HrGround * Tamb + HrPlen * Tso + HcPlen * TaGap + QdotSource) /
+                            (HExt + HrAtm + HrSky + HrGround + HrPlen + HcPlen);
+                    }
+                else {
                 TsBaffle = (Isc * SolAbs + HExt * Tamb + HrAtm * Tamb + HrSky * state.dataEnvrn->SkyTemp + HrGround * Tamb + HrPlen * Tso +
                             HcPlen * TaGap + QdotSource) /
                         (HExt + HrAtm + HrSky + HrGround + HrPlen + HcPlen);
+                    }
             } else {
                 TsBaffle = BaffleTemp; // use EMS override value
             } // ```
