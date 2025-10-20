@@ -1934,8 +1934,8 @@ namespace TranspiredCollector {
                                       Real64 const QdotSource,                    // Source/sink term, e.g. electricity exported from solar cell [W]
                                       Real64 &TsBaffle,                           // Temperature of baffle (both sides) use lagged value on input [C]
                                       Real64 &TaGap, // Temperature of air gap (assumed mixed) use lagged value on input [C]
-                                      bool const EMSOverrideOnSurfTotSolAbs,
-                                      Real64 const SurfTotSolAbs,
+                                      bool const EMSOverrideOnCladTotSolAbs,
+                                      Real64 const CladTotSolAbs,
                                       bool const EMSOverrideOnBaffleTemp,
                                       Real64 const BaffleTemp,
                                       bool const EMSOverrideOnCavityAirTemp,
@@ -2160,12 +2160,11 @@ namespace TranspiredCollector {
         if (!ICSCollectorIsOn) {
             // ```
             if (!EMSOverrideOnBaffleTemp) {
-                if (EMSOverrideOnSurfTotSolAbs) {
-                    TsBaffle = (SurfTotSolAbs + HExt * Tamb + HrAtm * Tamb + 
-                    HrSky * state.dataEnvrn->SkyTemp + HrGround * Tamb + HrPlen * Tso + HcPlen * TaGap + QdotSource) /
-                            (HExt + HrAtm + HrSky + HrGround + HrPlen + HcPlen);
-                    }
-                else {
+                if (EMSOverrideOnCladTotSolAbs) {
+                    TsBaffle = (CladTotSolAbs + HExt * Tamb + HrAtm * Tamb +
+                                 HrSky * state.dataEnvrn->SkyTemp + HrGround * Tamb + HrPlen * Tso + HcPlen * TaGap + QdotSource) /
+                                (HExt + HrAtm + HrSky + HrGround + HrPlen + HcPlen);
+                } else {
                 TsBaffle = (Isc * SolAbs + HExt * Tamb + HrAtm * Tamb + HrSky * state.dataEnvrn->SkyTemp + HrGround * Tamb + HrPlen * Tso +
                             HcPlen * TaGap + QdotSource) /
                         (HExt + HrAtm + HrSky + HrGround + HrPlen + HcPlen);

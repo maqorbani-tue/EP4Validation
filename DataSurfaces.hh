@@ -1175,6 +1175,9 @@ namespace DataSurfaces {
         // ``` Surface total absorbed solar irradiation actuator
         bool EMSOverrideOnSurfTotSolAbs{false};
         Real64 SurfTotSolAbs;
+        // ``` Cladding total absorbed solar irradiation actuator
+        bool EMSOverrideOnCladTotSolAbs{false};
+        Real64 CladTotSolAbs;
         // ``` Baffle temperature actuator
         bool EMSOverrideOnBaffleTemp{false};
         Real64 BaffleTemp;
