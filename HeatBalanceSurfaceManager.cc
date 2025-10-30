@@ -7179,6 +7179,183 @@ void CalcHeatBalanceOutsideSurf(EnergyPlusData &state,
                     Real64 zoneTemperature = state.dataZoneTempPredictorCorrector->spaceHeatBalance(zoneNum).MAT;
                     Real64 outdoorDryBulbTemp = state.dataEnvrn->OutDryBulbTemp;
 
+                    // Start of the coefficient calculations for the tilted louvres (horizontal and vertical)
+                    if (state.dataSurface->OSCM(OPtr).EMSOverrideOnSurfSkyExpos &&
+                        state.dataSurface->OSCM(OPtr).EMSOverrideOnSurfGroundExpos &&
+                        (state.dataSurface->OSCM(OPtr).SurfSkyExpos + state.dataSurface->OSCM(OPtr).SurfGroundExpos > 0)) {
+
+                        // Getting the lines from the exterior exposed surface and KC == 0
+                        // Roughness index of the exterior surface
+                        Material::SurfaceRoughness RoughSurf = state.dataHeatBalSurf->SurfRoughnessExt(SurfNum);
+                        // Thermal absoptance of the exterior surface
+                        Real64 AbsThermSurf = state.dataHeatBalSurf->SurfAbsThermalExt(SurfNum);
+                        HMovInsul = 0;
+                        // Check for outside movable insulation
+                        if (state.dataSurface->AnyMovableInsulation && state.dataHeatBalSurf->SurfMovInsulExtPresent(SurfNum)) {
+                            HMovInsul = state.dataHeatBalSurf->SurfMovInsulHExt(SurfNum);
+                        }
+                        // Check for exposure to wind (exterior environment)
+                        if (Surface(SurfNum).ExtWind) {
+                            // Calculate exterior heat transfer coefficients with windspeed (windspeed is calculated internally in subroutine)
+                            // TODO For the louvre-based shades, I have to make changes to ConvectionCoefficients.cc here
+                            Convect::InitExtConvCoeff(state,
+                                SurfNum,
+                                HMovInsul,
+                                RoughSurf,
+                                AbsThermSurf,
+                                state.dataHeatBalSurf->SurfOutsideTempHist(1)(SurfNum),
+                                state.dataHeatBalSurf->SurfHConvExt(SurfNum),
+                                state.dataHeatBalSurf->SurfHSkyExt(SurfNum),
+                                state.dataHeatBalSurf->SurfHGrdExt(SurfNum),
+                                state.dataHeatBalSurf->SurfHAirExt(SurfNum),
+                                state.dataHeatBalSurf->SurfHSrdSurfExt(SurfNum));
+                            
+                            // TODO I have to decide whether the surface is wet or not during the rain (maybe the rain is based on the louvre angle?)
+                            if (state.dataEnvrn->IsRain) { // Raining: since wind exposed, outside surface gets wet
+                                if (state.dataSurface->surfExtConv(SurfNum).userModelNum == 0) { // Reset SurfHcExt because of wetness
+                                    state.dataHeatBalSurf->SurfHConvExt(SurfNum) = 1000.0;
+                                } else { // User set
+                                    state.dataHeatBalSurf->SurfHConvExt(SurfNum) = Convect::SetExtConvCoeff(state, SurfNum);
+                                }
+                                // TODO I have decide what is the outside temp of this surface (maybe TairGap?)
+                                TempExt = state.dataSurface->SurfOutWetBulbTemp(SurfNum);
+                                // start HAMT
+                                if (Surface(SurfNum).HeatTransferAlgorithm == DataSurfaces::HeatTransferModel::HAMT) {
+                                    // Set variables used in the HAMT moisture balance
+                                    state.dataMstBal->TempOutsideAirFD(SurfNum) = TempExt;
+                                    state.dataMstBal->RhoVaporAirOut(SurfNum) =
+                                        Psychrometrics::PsyRhovFnTdbRh(state, state.dataMstBal->TempOutsideAirFD(SurfNum), 1.0, HBSurfManRainHAMT);
+                                    state.dataMstBal->HConvExtFD(SurfNum) = state.dataHeatBalSurf->SurfHConvExt(SurfNum);
+                                    state.dataMstBal->HMassConvExtFD(SurfNum) =
+                                        state.dataMstBal->HConvExtFD(SurfNum) /
+                                        ((Psychrometrics::PsyRhoAirFnPbTdbW(state,
+                                                                            state.dataEnvrn->OutBaroPress,
+                                                                            state.dataMstBal->TempOutsideAirFD(SurfNum),
+                                                                            Psychrometrics::PsyWFnTdbRhPb(state,
+                                                                                                        state.dataMstBal->TempOutsideAirFD(SurfNum),
+                                                                                                        1.0,
+                                                                                                        state.dataEnvrn->OutBaroPress,
+                                                                                                        RoutineNameExtEnvWetSurf)) +
+                                        state.dataMstBal->RhoVaporAirOut(SurfNum)) *
+                                        Psychrometrics::PsyCpAirFnW(state.dataEnvrn->OutHumRat));
+                                    state.dataMstBal->HSkyFD(SurfNum) = state.dataHeatBalSurf->SurfHSkyExt(SurfNum);
+                                    state.dataMstBal->HGrndFD(SurfNum) = state.dataHeatBalSurf->SurfHGrdExt(SurfNum);
+                                    state.dataMstBal->HAirFD(SurfNum) = state.dataHeatBalSurf->SurfHAirExt(SurfNum);
+                                }
+                                // end HAMT
+                                if (Surface(SurfNum).HeatTransferAlgorithm == DataSurfaces::HeatTransferModel::CondFD) {
+                                    // Set variables used in the FD moisture balance
+                                    state.dataMstBal->TempOutsideAirFD(SurfNum) = TempExt;
+                                    state.dataMstBal->RhoVaporAirOut(SurfNum) =
+                                        Psychrometrics::PsyRhovFnTdbRhLBnd0C(state.dataMstBal->TempOutsideAirFD(SurfNum), 1.0);
+                                    state.dataMstBal->HConvExtFD(SurfNum) = state.dataHeatBalSurf->SurfHConvExt(SurfNum);
+                                    state.dataMstBal->HMassConvExtFD(SurfNum) =
+                                        state.dataMstBal->HConvExtFD(SurfNum) /
+                                        ((Psychrometrics::PsyRhoAirFnPbTdbW(state,
+                                                                            state.dataEnvrn->OutBaroPress,
+                                                                            state.dataMstBal->TempOutsideAirFD(SurfNum),
+                                                                            Psychrometrics::PsyWFnTdbRhPb(state,
+                                                                                                        state.dataMstBal->TempOutsideAirFD(SurfNum),
+                                                                                                        1.0,
+                                                                                                        state.dataEnvrn->OutBaroPress,
+                                                                                                        RoutineNameExtEnvWetSurf)) +
+                                        state.dataMstBal->RhoVaporAirOut(SurfNum)) *
+                                        Psychrometrics::PsyCpAirFnW(state.dataEnvrn->OutHumRat));
+                                    state.dataMstBal->HSkyFD(SurfNum) = state.dataHeatBalSurf->SurfHSkyExt(SurfNum);
+                                    state.dataMstBal->HGrndFD(SurfNum) = state.dataHeatBalSurf->SurfHGrdExt(SurfNum);
+                                    state.dataMstBal->HAirFD(SurfNum) = state.dataHeatBalSurf->SurfHAirExt(SurfNum);
+                                }
+                            } else { // Surface is dry, use the normal correlation
+                                // TODO I have decide what is the outside temp of this surface (maybe TairGap?)
+                                TempExt = state.dataSurface->SurfOutDryBulbTemp(SurfNum);
+                                if (Surface(SurfNum).HeatTransferAlgorithm == DataSurfaces::HeatTransferModel::CondFD ||
+                                    Surface(SurfNum).HeatTransferAlgorithm == DataSurfaces::HeatTransferModel::HAMT) {
+                                    // Set variables used in the FD moisture balance and HAMT
+                                    state.dataMstBal->TempOutsideAirFD(SurfNum) = TempExt;
+                                    state.dataMstBal->RhoVaporAirOut(SurfNum) = Psychrometrics::PsyRhovFnTdbWPb(
+                                        state.dataMstBal->TempOutsideAirFD(SurfNum), state.dataEnvrn->OutHumRat, state.dataEnvrn->OutBaroPress);
+                                    state.dataMstBal->HConvExtFD(SurfNum) = state.dataHeatBalSurf->SurfHConvExt(SurfNum);
+                                    state.dataMstBal->HMassConvExtFD(SurfNum) =
+                                        state.dataMstBal->HConvExtFD(SurfNum) /
+                                        ((Psychrometrics::PsyRhoAirFnPbTdbW(state,
+                                                                            state.dataEnvrn->OutBaroPress,
+                                                                            state.dataMstBal->TempOutsideAirFD(SurfNum),
+                                                                            Psychrometrics::PsyWFnTdbRhPb(state,
+                                                                                                        state.dataMstBal->TempOutsideAirFD(SurfNum),
+                                                                                                        1.0,
+                                                                                                        state.dataEnvrn->OutBaroPress,
+                                                                                                        RoutineNameExtEnvDrySurf)) +
+                                        state.dataMstBal->RhoVaporAirOut(SurfNum)) *
+                                        Psychrometrics::PsyCpAirFnW(state.dataEnvrn->OutHumRat));
+                                    //  check for saturation conditions of air
+                                    // Local temporary saturated vapor density for checking
+                                    Real64 RhoVaporSat =
+                                        Psychrometrics::PsyRhovFnTdbRh(state, state.dataMstBal->TempOutsideAirFD(SurfNum), 1.0, HBSurfManDrySurfCondFD);
+                                    if (state.dataMstBal->RhoVaporAirOut(SurfNum) > RhoVaporSat) state.dataMstBal->RhoVaporAirOut(SurfNum) = RhoVaporSat;
+                                    state.dataMstBal->HSkyFD(SurfNum) = state.dataHeatBalSurf->SurfHSkyExt(SurfNum);
+                                    state.dataMstBal->HGrndFD(SurfNum) = state.dataHeatBalSurf->SurfHGrdExt(SurfNum);
+                                    state.dataMstBal->HAirFD(SurfNum) = state.dataHeatBalSurf->SurfHAirExt(SurfNum);
+                                }
+                            }
+                        } else { // No wind
+                            // Calculate exterior heat transfer coefficients for windspeed = 0
+                            Convect::InitExtConvCoeff(state,
+                                                    SurfNum,
+                                                    HMovInsul,
+                                                    RoughSurf,
+                                                    AbsThermSurf,
+                                                    state.dataHeatBalSurf->SurfOutsideTempHist(1)(SurfNum),
+                                                    state.dataHeatBalSurf->SurfHConvExt(SurfNum),
+                                                    state.dataHeatBalSurf->SurfHSkyExt(SurfNum),
+                                                    state.dataHeatBalSurf->SurfHGrdExt(SurfNum),
+                                                    state.dataHeatBalSurf->SurfHAirExt(SurfNum),
+                                                    state.dataHeatBalSurf->SurfHSrdSurfExt(SurfNum));
+                            TempExt = state.dataSurface->SurfOutDryBulbTemp(SurfNum);
+                            if (Surface(SurfNum).HeatTransferAlgorithm == DataSurfaces::HeatTransferModel::CondFD ||
+                                Surface(SurfNum).HeatTransferAlgorithm == DataSurfaces::HeatTransferModel::HAMT) {
+                                // Set variables used in the FD moisture balance and HAMT
+                                state.dataMstBal->TempOutsideAirFD(SurfNum) = TempExt;
+                                state.dataMstBal->RhoVaporAirOut(SurfNum) = Psychrometrics::PsyRhovFnTdbWPb(
+                                    state.dataMstBal->TempOutsideAirFD(SurfNum), state.dataEnvrn->OutHumRat, state.dataEnvrn->OutBaroPress);
+                                state.dataMstBal->HConvExtFD(SurfNum) = state.dataHeatBalSurf->SurfHConvExt(SurfNum);
+                                state.dataMstBal->HMassConvExtFD(SurfNum) =
+                                    state.dataMstBal->HConvExtFD(SurfNum) /
+                                    ((Psychrometrics::PsyRhoAirFnPbTdbW(state,
+                                                                        state.dataEnvrn->OutBaroPress,
+                                                                        state.dataMstBal->TempOutsideAirFD(SurfNum),
+                                                                        Psychrometrics::PsyWFnTdbRhPb(state,
+                                                                                                    state.dataMstBal->TempOutsideAirFD(SurfNum),
+                                                                                                    1.0,
+                                                                                                    state.dataEnvrn->OutBaroPress,
+                                                                                                    RoutineNameNoWind)) +
+                                    state.dataMstBal->RhoVaporAirOut(SurfNum)) *
+                                    Psychrometrics::PsyCpAirFnW(state.dataEnvrn->OutHumRat));
+                                state.dataMstBal->HSkyFD(SurfNum) = state.dataHeatBalSurf->SurfHSkyExt(SurfNum);
+                                state.dataMstBal->HGrndFD(SurfNum) = state.dataHeatBalSurf->SurfHGrdExt(SurfNum);
+                                state.dataMstBal->HAirFD(SurfNum) = state.dataHeatBalSurf->SurfHAirExt(SurfNum);
+                            }
+                        }
+                        // Calculate LWR from surrounding surfaces if defined for an exterior surface
+                        // TODO Maybe I can deactivate this whole following block since there are no surrounding surfaces other than the louvre?
+                        if (state.dataSurface->Surface(SurfNum).SurfHasSurroundingSurfProperty) {
+                            int SrdSurfsNum = state.dataSurface->Surface(SurfNum).SurfSurroundingSurfacesNum;
+                            // Absolute temperature of the outside surface of an exterior surface
+                            Real64 TSurf = state.dataHeatBalSurf->SurfOutsideTempHist(1)(SurfNum) + Constant::KelvinConv;
+                            for (int SrdSurfNum = 1; SrdSurfNum <= state.dataSurface->SurroundingSurfsProperty(SrdSurfsNum).TotSurroundingSurface;
+                                SrdSurfNum++) {
+                                // View factor of a surrounding surface
+                                Real64 SrdSurfViewFac = state.dataSurface->SurroundingSurfsProperty(SrdSurfsNum).SurroundingSurfs(SrdSurfNum).ViewFactor;
+                                // Absolute temperature of a surrounding surface
+                                Real64 SrdSurfTempAbs =
+                                    ScheduleManager::GetCurrentScheduleValue(
+                                        state, state.dataSurface->SurroundingSurfsProperty(SrdSurfsNum).SurroundingSurfs(SrdSurfNum).TempSchNum) +
+                                    Constant::KelvinConv;
+                                state.dataHeatBalSurf->SurfQRadLWOutSrdSurfs(SurfNum) +=
+                                    Constant::StefanBoltzmann * AbsThermSurf * SrdSurfViewFac * (pow_4(SrdSurfTempAbs) - pow_4(TSurf));
+                            }
+                        }
+                    }
+
                     // Call the outside surface temp calculation and pass the necessary terms
                     if (Surface(SurfNum).HeatTransferAlgorithm == DataSurfaces::HeatTransferModel::CTF ||
                         Surface(SurfNum).HeatTransferAlgorithm == DataSurfaces::HeatTransferModel::EMPD) {
@@ -9569,21 +9746,40 @@ void CalcOutsideSurfTemp(EnergyPlusData &state,
                         state.dataSurface->OSCM(surface.OSCMPtr).TRad; // local value for Effective radiation temperature for OtherSideConditions model
                     Real64 HRad = state.dataSurface->OSCM(surface.OSCMPtr).HRad; // local value for effective (linearized) radiation coefficient
 
-                    //patterned after "No movable insulation, slow conduction," but with new radiation terms and no sun,
-                    if (construct.SourceSinkPresent) {
-                        TH11 = (-state.dataHeatBalSurf->SurfCTFConstOutPart(SurfNum) + state.dataHeatBalSurf->SurfHConvExt(SurfNum) * TempExt +
-                                state.dataHeatBalSurf->SurfQAdditionalHeatSourceOutside(SurfNum) + HRad * RadTemp +
-                                construct.CTFCross[0] * state.dataHeatBalSurf->SurfTempIn(SurfNum) +
-                                construct.CTFSourceOut[0] * state.dataHeatBalSurf->SurfQsrcHist(SurfNum, 1)) /
-                            (construct.CTFOutside[0] + state.dataHeatBalSurf->SurfHConvExt(SurfNum) + HRad);
-                    } else {
-                        TH11 = (-state.dataHeatBalSurf->SurfCTFConstOutPart(SurfNum) + state.dataHeatBalSurf->SurfHConvExt(SurfNum) * TempExt +
-                                state.dataHeatBalSurf->SurfQAdditionalHeatSourceOutside(SurfNum) + HRad * RadTemp +
-                                construct.CTFCross[0] * state.dataHeatBalSurf->SurfTempIn(SurfNum)) /
-                            (construct.CTFOutside[0] + state.dataHeatBalSurf->SurfHConvExt(SurfNum) + HRad);
+                    if (state.dataSurface->OSCM(surface.OSCMPtr).EMSOverrideOnSurfSkyExpos && 
+                        state.dataSurface->OSCM(surface.OSCMPtr).EMSOverrideOnSurfGroundExpos &&
+                        (state.dataSurface->OSCM(surface.OSCMPtr).SurfSkyExpos + state.dataSurface->OSCM(surface.OSCMPtr).SurfGroundExpos > 0)) {
+                        Real64 SurfSkyExpos = state.dataSurface->OSCM(surface.OSCMPtr).SurfSkyExpos;
+                        Real64 SurfGroundExpos = state.dataSurface->OSCM(surface.OSCMPtr).SurfGroundExpos;
+                        Real64 SurfcladExpos = 1 - (SurfSkyExpos + SurfGroundExpos);
+
+                        HRad = HRad * SurfcladExpos;
+                        Real64 HGrnd = state.dataHeatBalSurf->SurfHGrdExt(SurfNum) * SurfGroundExpos;
+                        Real64 HSky = state.dataHeatBalSurf->SurfHSkyExt(SurfNum) * SurfSkyExpos;
+                        
+                        // Now the temperature calculation
+                        // Here, SurfOpaqQRadSWOutAbs, Sky, Grnd are added
+                        TH11 = (-state.dataHeatBalSurf->SurfCTFConstOutPart(SurfNum) + state.dataHeatBalSurf->SurfOpaqQRadSWOutAbs(SurfNum) +
+                                state.dataHeatBalSurf->SurfHConvExt(SurfNum) * TempExt +
+                                state.dataHeatBalSurf->SurfQAdditionalHeatSourceOutside(SurfNum) + HSky * TSky + HGrnd * TGround +
+                                HRad * RadTemp + construct.CTFCross[0] * state.dataHeatBalSurf->SurfTempIn(SurfNum)) /
+                            (construct.CTFOutside[0] + state.dataHeatBalSurf->SurfHConvExt(SurfNum) + HRad + HSky + HGrnd);
+                    } else { // Louvres are completely shut (SurfcladExpos = 1 && KC = 1)
+                        //patterned after "No movable insulation, slow conduction," but with new radiation terms and no sun,
+                        if (construct.SourceSinkPresent) {
+                            TH11 = (-state.dataHeatBalSurf->SurfCTFConstOutPart(SurfNum) + state.dataHeatBalSurf->SurfHConvExt(SurfNum) * TempExt +
+                                    state.dataHeatBalSurf->SurfQAdditionalHeatSourceOutside(SurfNum) + HRad * RadTemp +
+                                    construct.CTFCross[0] * state.dataHeatBalSurf->SurfTempIn(SurfNum) +
+                                    construct.CTFSourceOut[0] * state.dataHeatBalSurf->SurfQsrcHist(SurfNum, 1)) /
+                                (construct.CTFOutside[0] + state.dataHeatBalSurf->SurfHConvExt(SurfNum) + HRad);
+                        } else {
+                            TH11 = (-state.dataHeatBalSurf->SurfCTFConstOutPart(SurfNum) + state.dataHeatBalSurf->SurfHConvExt(SurfNum) * TempExt +
+                                    state.dataHeatBalSurf->SurfQAdditionalHeatSourceOutside(SurfNum) + HRad * RadTemp +
+                                    construct.CTFCross[0] * state.dataHeatBalSurf->SurfTempIn(SurfNum)) /
+                                (construct.CTFOutside[0] + state.dataHeatBalSurf->SurfHConvExt(SurfNum) + HRad);
+                        }
                     }
-                }
-                else { // KC == 0
+                } else { // KC == 0
                     if (construct.SourceSinkPresent) {
                         TH11 = (-state.dataHeatBalSurf->SurfCTFConstOutPart(SurfNum) + state.dataHeatBalSurf->SurfOpaqQRadSWOutAbs(SurfNum) +
                                 state.dataHeatBalSurf->SurfHSrdSurfExt(SurfNum) * TSrdSurfs +
@@ -9716,7 +9912,7 @@ void CalcOutsideSurfTemp(EnergyPlusData &state,
     Real64 const HExtSurf_fac(
         -(state.dataHeatBalSurf->SurfHSkyExt(SurfNum) * (TH11 - TSky) + state.dataHeatBalSurf->SurfHAirExt(SurfNum) * (TH11 - TempExt) +
           state.dataHeatBalSurf->SurfHGrdExt(SurfNum) * (TH11 - TGround) + state.dataHeatBalSurf->SurfHSrdSurfExt(SurfNum) * (TH11 - TSrdSurfs)));
-    state.dataHeatBalSurf->SurfQdotRadOutRepPerArea(SurfNum) = HExtSurf_fac;
+          state.dataHeatBalSurf->SurfQdotRadOutRepPerArea(SurfNum) = HExtSurf_fac;
 
     // Set the radiant system heat balance coefficients if this surface is also a radiant system
     if (construct.SourceSinkPresent) {
