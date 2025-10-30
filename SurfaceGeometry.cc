@@ -12179,6 +12179,22 @@ namespace SurfaceGeometry {
                                  "[W/m2]",
                                  state.dataSurface->OSCM(OSCMNum).EMSOverrideOnSurfTotSolAbs,
                                  state.dataSurface->OSCM(OSCMNum).SurfTotSolAbs);
+                // ``` New EMS actuator for the underlying surface sky exposure
+                SetupEMSActuator(state,
+                                 "SurfaceProperty:ExteriorNaturallyVentedCavity",
+                                 state.dataSurface->OSCM(OSCMNum).Name,
+                                 "Underlying Surface Sky Exposure Factor",
+                                 "[dimensionless]",
+                                 state.dataSurface->OSCM(OSCMNum).EMSOverrideOnSurfSkyExpos,
+                                 state.dataSurface->OSCM(OSCMNum).SurfSkyExpos);
+                // ``` New EMS actuator for the underlying surface ground exposure
+                SetupEMSActuator(state,
+                                 "SurfaceProperty:ExteriorNaturallyVentedCavity",
+                                 state.dataSurface->OSCM(OSCMNum).Name,
+                                 "Underlying Surface Ground Exposure Factor",
+                                 "[dimensionless]",
+                                 state.dataSurface->OSCM(OSCMNum).EMSOverrideOnSurfGroundExpos,
+                                 state.dataSurface->OSCM(OSCMNum).SurfGroundExpos);
                 // ``` New EMS actuator for the cladding solar irradiation
                 SetupEMSActuator(state,
                                  "SurfaceProperty:ExteriorNaturallyVentedCavity",

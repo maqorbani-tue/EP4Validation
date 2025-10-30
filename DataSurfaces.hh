@@ -1175,6 +1175,12 @@ namespace DataSurfaces {
         // ``` Surface total absorbed solar irradiation actuator
         bool EMSOverrideOnSurfTotSolAbs{false};
         Real64 SurfTotSolAbs;
+        // ``` Surface Sky Exposure factor actuator
+        bool EMSOverrideOnSurfSkyExpos{false};
+        Real64 SurfSkyExpos;
+        // ``` Surface Ground Exposure factor actuator
+        bool EMSOverrideOnSurfGroundExpos{false};
+        Real64 SurfGroundExpos;
         // ``` Cladding total absorbed solar irradiation actuator
         bool EMSOverrideOnCladTotSolAbs{false};
         Real64 CladTotSolAbs;
