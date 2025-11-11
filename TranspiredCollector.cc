@@ -2464,10 +2464,13 @@ namespace TranspiredCollector {
             TsBaffleIn = BaffleTemp;  // Make sure both are set
         }
 
+        // Adjusting the radiation coefficient between baffle and plenum surfaces for exposure factor
+        Real64 HrPlen_Adjusted = HrPlen * SOExposure;
+
         // 2. Calculate the INNER baffle surface temperature (using the NEWLY calculated TsBaffleOut)
         if (!EMSOverrideOnBaffleTemp) {
-            Real64 NumeratorIn = HcPlen * TaGap + HrPlen * SOExposure * Tso + BaffleCondCoeff * TsBaffleOut; // Use new TsBaffleOut
-            Real64 DenominatorIn = HcPlen + HrPlen + BaffleCondCoeff;
+            Real64 NumeratorIn = HcPlen * TaGap + HrPlen_Adjusted * Tso + BaffleCondCoeff * TsBaffleOut; // Use new TsBaffleOut
+            Real64 DenominatorIn = HcPlen + HrPlen_Adjusted + BaffleCondCoeff;
             if (std::abs(DenominatorIn) > 1e-9) { // Avoid division by zero
                 TsBaffleIn = NumeratorIn / DenominatorIn;
             } else {
