@@ -202,7 +202,7 @@ namespace HeatBalanceSurfaceManager {
                              int KC = 0
     );
 
-    void CalcExteriorVentedCavity(EnergyPlusData &state, int SurfNum, Real64 outdoorDryBulbTemp, Real64 zoneTemperature); // index of surface
+    void CalcExteriorVentedCavity(EnergyPlusData &state, int SurfNum); // index of surface
 
     void GatherComponentLoadsSurfAbsFact(EnergyPlusData &state);
 

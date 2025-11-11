@@ -2282,6 +2282,7 @@ void InitThermalAndFluxHistories(EnergyPlusData &state)
     for (int SurfNum : state.dataSurface->AllHTSurfaceList) {
         if (state.dataSurface->SurfExtCavityPresent(SurfNum)) {
             state.dataHeatBal->ExtVentedCavity(state.dataSurface->SurfExtCavNum(SurfNum)).TbaffleLast = 20.0;
+            state.dataHeatBal->ExtVentedCavity(state.dataSurface->SurfExtCavNum(SurfNum)).TbaffleOutLast = 20.0;
             state.dataHeatBal->ExtVentedCavity(state.dataSurface->SurfExtCavNum(SurfNum)).TairLast = 20.0;
         }
     }
@@ -7197,7 +7198,7 @@ void CalcHeatBalanceOutsideSurf(EnergyPlusData &state,
                         // Check for exposure to wind (exterior environment)
                         if (Surface(SurfNum).ExtWind) {
                             // Calculate exterior heat transfer coefficients with windspeed (windspeed is calculated internally in subroutine)
-                            // TODO For the louvre-based shades, I have to make changes to ConvectionCoefficients.cc here
+                            // TODO For the louvre-based shades, I have to make changes to ConvectionCoefficients.cc here, I have done the HConv
                             Convect::InitExtConvCoeff(state,
                                 SurfNum,
                                 HMovInsul,
@@ -7209,15 +7210,21 @@ void CalcHeatBalanceOutsideSurf(EnergyPlusData &state,
                                 state.dataHeatBalSurf->SurfHGrdExt(SurfNum),
                                 state.dataHeatBalSurf->SurfHAirExt(SurfNum),
                                 state.dataHeatBalSurf->SurfHSrdSurfExt(SurfNum));
+
+                            // ``` This is redundant, but I am adding from the top to override the HConv
+                            state.dataHeatBalSurf->SurfHConvExt(SurfNum) = state.dataSurface->OSCM(OPtr).HConv;
                             
-                            // TODO I have to decide whether the surface is wet or not during the rain (maybe the rain is based on the louvre angle?)
-                            if (state.dataEnvrn->IsRain) { // Raining: since wind exposed, outside surface gets wet
+                            // TODO I have to decide whether the surface is wet or not during the rain. Update:
+                            // The surface is only considered wet when the sky explosure > 15%
+                            // Raining: since wind exposed, outside surface gets wet
+                            if (state.dataEnvrn->IsRain && state.dataSurface->OSCM(OPtr).SurfSkyExpos > 0.15) {
                                 if (state.dataSurface->surfExtConv(SurfNum).userModelNum == 0) { // Reset SurfHcExt because of wetness
                                     state.dataHeatBalSurf->SurfHConvExt(SurfNum) = 1000.0;
                                 } else { // User set
                                     state.dataHeatBalSurf->SurfHConvExt(SurfNum) = Convect::SetExtConvCoeff(state, SurfNum);
                                 }
-                                // TODO I have decide what is the outside temp of this surface (maybe TairGap?)
+                                // TODO I have decide what is the outside temp of this surface (maybe TairGap?) Update:
+                                // This whole if block only happens when the sky explosure > 15%
                                 TempExt = state.dataSurface->SurfOutWetBulbTemp(SurfNum);
                                 // start HAMT
                                 if (Surface(SurfNum).HeatTransferAlgorithm == DataSurfaces::HeatTransferModel::HAMT) {
@@ -7266,8 +7273,13 @@ void CalcHeatBalanceOutsideSurf(EnergyPlusData &state,
                                     state.dataMstBal->HAirFD(SurfNum) = state.dataHeatBalSurf->SurfHAirExt(SurfNum);
                                 }
                             } else { // Surface is dry, use the normal correlation
-                                // TODO I have decide what is the outside temp of this surface (maybe TairGap?)
-                                TempExt = state.dataSurface->SurfOutDryBulbTemp(SurfNum);
+                                // TODO I have decide what is the outside temp of this surface (maybe TairGap?) Update:
+                                // We decide this in the Python API by setting the KC to either 0 or 1
+                                // Also, we already have TempExt (calculated by the ExVC function)
+                                // Here we only set to the outside OutDryBulbTemp if BaffleExposure < 0.85 otherwise use the previous TempEXt
+                                if (state.dataSurface->OSCM(OPtr).SurfSkyExpos + state.dataSurface->OSCM(OPtr).SurfGroundExpos > 0.15) {
+                                    TempExt = state.dataSurface->SurfOutDryBulbTemp(SurfNum);
+                                }
                                 if (Surface(SurfNum).HeatTransferAlgorithm == DataSurfaces::HeatTransferModel::CondFD ||
                                     Surface(SurfNum).HeatTransferAlgorithm == DataSurfaces::HeatTransferModel::HAMT) {
                                     // Set variables used in the FD moisture balance and HAMT
@@ -7310,7 +7322,10 @@ void CalcHeatBalanceOutsideSurf(EnergyPlusData &state,
                                                     state.dataHeatBalSurf->SurfHGrdExt(SurfNum),
                                                     state.dataHeatBalSurf->SurfHAirExt(SurfNum),
                                                     state.dataHeatBalSurf->SurfHSrdSurfExt(SurfNum));
-                            TempExt = state.dataSurface->SurfOutDryBulbTemp(SurfNum);
+                            // ``` Again, here we only set to the outside OutDryBulbTemp if BaffleExposure < 0.85 otherwise use the previous TempEXt
+                            if (state.dataSurface->OSCM(OPtr).SurfSkyExpos + state.dataSurface->OSCM(OPtr).SurfGroundExpos > 0.15) {
+                                TempExt = state.dataSurface->SurfOutDryBulbTemp(SurfNum);
+                            }  // ```
                             if (Surface(SurfNum).HeatTransferAlgorithm == DataSurfaces::HeatTransferModel::CondFD ||
                                 Surface(SurfNum).HeatTransferAlgorithm == DataSurfaces::HeatTransferModel::HAMT) {
                                 // Set variables used in the FD moisture balance and HAMT
@@ -7335,25 +7350,29 @@ void CalcHeatBalanceOutsideSurf(EnergyPlusData &state,
                                 state.dataMstBal->HAirFD(SurfNum) = state.dataHeatBalSurf->SurfHAirExt(SurfNum);
                             }
                         }
+                        // ``` I deactivated the following part for the following reasons:
+                        // 1. If we have more than x % of outside exposure, then the we have to set KC = 0.
+                        // There, the surrounding surfaces are calculated
+                        // 2. For the louver based claddings when the KC = 1, this value should be a fraction or should not be seen at all
+                        // TODO let's see if the TranspiredCollector sees this effect of the surrounding surfaces
                         // Calculate LWR from surrounding surfaces if defined for an exterior surface
-                        // TODO Maybe I can deactivate this whole following block since there are no surrounding surfaces other than the louvre?
-                        if (state.dataSurface->Surface(SurfNum).SurfHasSurroundingSurfProperty) {
-                            int SrdSurfsNum = state.dataSurface->Surface(SurfNum).SurfSurroundingSurfacesNum;
-                            // Absolute temperature of the outside surface of an exterior surface
-                            Real64 TSurf = state.dataHeatBalSurf->SurfOutsideTempHist(1)(SurfNum) + Constant::KelvinConv;
-                            for (int SrdSurfNum = 1; SrdSurfNum <= state.dataSurface->SurroundingSurfsProperty(SrdSurfsNum).TotSurroundingSurface;
-                                SrdSurfNum++) {
-                                // View factor of a surrounding surface
-                                Real64 SrdSurfViewFac = state.dataSurface->SurroundingSurfsProperty(SrdSurfsNum).SurroundingSurfs(SrdSurfNum).ViewFactor;
-                                // Absolute temperature of a surrounding surface
-                                Real64 SrdSurfTempAbs =
-                                    ScheduleManager::GetCurrentScheduleValue(
-                                        state, state.dataSurface->SurroundingSurfsProperty(SrdSurfsNum).SurroundingSurfs(SrdSurfNum).TempSchNum) +
-                                    Constant::KelvinConv;
-                                state.dataHeatBalSurf->SurfQRadLWOutSrdSurfs(SurfNum) +=
-                                    Constant::StefanBoltzmann * AbsThermSurf * SrdSurfViewFac * (pow_4(SrdSurfTempAbs) - pow_4(TSurf));
-                            }
-                        }
+                        // if (state.dataSurface->Surface(SurfNum).SurfHasSurroundingSurfProperty) {
+                        //     int SrdSurfsNum = state.dataSurface->Surface(SurfNum).SurfSurroundingSurfacesNum;
+                        //     // Absolute temperature of the outside surface of an exterior surface
+                        //     Real64 TSurf = state.dataHeatBalSurf->SurfOutsideTempHist(1)(SurfNum) + Constant::KelvinConv;
+                        //     for (int SrdSurfNum = 1; SrdSurfNum <= state.dataSurface->SurroundingSurfsProperty(SrdSurfsNum).TotSurroundingSurface;
+                        //         SrdSurfNum++) {
+                        //         // View factor of a surrounding surface
+                        //         Real64 SrdSurfViewFac = state.dataSurface->SurroundingSurfsProperty(SrdSurfsNum).SurroundingSurfs(SrdSurfNum).ViewFactor;
+                        //         // Absolute temperature of a surrounding surface
+                        //         Real64 SrdSurfTempAbs =
+                        //             ScheduleManager::GetCurrentScheduleValue(
+                        //                 state, state.dataSurface->SurroundingSurfsProperty(SrdSurfsNum).SurroundingSurfs(SrdSurfNum).TempSchNum) +
+                        //             Constant::KelvinConv;
+                        //         state.dataHeatBalSurf->SurfQRadLWOutSrdSurfs(SurfNum) +=
+                        //             Constant::StefanBoltzmann * AbsThermSurf * SrdSurfViewFac * (pow_4(SrdSurfTempAbs) - pow_4(TSurf));
+                        //     }
+                        // }
                     }
 
                     // Call the outside surface temp calculation and pass the necessary terms
@@ -7361,7 +7380,7 @@ void CalcHeatBalanceOutsideSurf(EnergyPlusData &state,
                         Surface(SurfNum).HeatTransferAlgorithm == DataSurfaces::HeatTransferModel::EMPD) {
 
                         if (state.dataSurface->SurfExtCavityPresent(SurfNum)) {
-                            CalcExteriorVentedCavity(state, SurfNum, outdoorDryBulbTemp, zoneTemperature);
+                            CalcExteriorVentedCavity(state, SurfNum);
                         }
 
                         CalcOutsideSurfTemp(state, SurfNum, spaceNum, ConstrNum, HMovInsul, TempExt, MovInsulErrorFlag, KC);
@@ -7370,24 +7389,27 @@ void CalcHeatBalanceOutsideSurf(EnergyPlusData &state,
                     } else if (Surface(SurfNum).HeatTransferAlgorithm == DataSurfaces::HeatTransferModel::CondFD ||
                                Surface(SurfNum).HeatTransferAlgorithm == DataSurfaces::HeatTransferModel::HAMT) {
                         if (state.dataSurface->SurfExtCavityPresent(SurfNum)) {
-                            CalcExteriorVentedCavity(state, SurfNum, outdoorDryBulbTemp, zoneTemperature);
+                            CalcExteriorVentedCavity(state, SurfNum);
                         }
                     }
                     // This ends the calculations for this surface and goes on to the next SurfNum
                     break;
                 }
 
-                else {  // KC != 1 (hopefully it is going to be 0 :=) // This is when the KC is off; so it is a normal surface
+                else {  // KC != 1 (hopefully it is going to be 0 :=) TODO I have to add a test to check KC's validity (either 0 or 1)
+                    // This is when the KC is off; so it is a normal surface
                     // Setting the KC temperature as the DryBulbTemp after being retracted (extra extra added) ```
                     int CavNum = state.dataSurface->SurfExtCavNum(SurfNum);
                     Real64 TempExt = state.dataSurface->SurfOutDryBulbTemp(SurfNum);
 
                     state.dataHeatBal->ExtVentedCavity(CavNum).TAirCav = TempExt;
-                    state.dataHeatBal->ExtVentedCavity(CavNum).Tbaffle = TempExt;
+                    state.dataHeatBal->ExtVentedCavity(CavNum).Tbaffle = TempExt; // This is now TbaffleIn
+                    state.dataHeatBal->ExtVentedCavity(CavNum).TbaffleOut = TempExt; // This is newly added
 
                     // now do some updates
                     state.dataHeatBal->ExtVentedCavity(CavNum).TairLast = state.dataHeatBal->ExtVentedCavity(CavNum).TAirCav;
                     state.dataHeatBal->ExtVentedCavity(CavNum).TbaffleLast = state.dataHeatBal->ExtVentedCavity(CavNum).Tbaffle;
+                    state.dataHeatBal->ExtVentedCavity(CavNum).TbaffleOutLast = state.dataHeatBal->ExtVentedCavity(CavNum).TbaffleOut;
 
                     // update the OtherSideConditionsModel coefficients.
                     int thisOSCM = state.dataHeatBal->ExtVentedCavity(CavNum).OSCMPtr;
@@ -9760,45 +9782,84 @@ void CalcOutsideSurfTemp(EnergyPlusData &state,
                         // Now the temperature calculation
                         // Here, SurfOpaqQRadSWOutAbs, Sky, Grnd are added
                         TH11 = (-state.dataHeatBalSurf->SurfCTFConstOutPart(SurfNum) + state.dataHeatBalSurf->SurfOpaqQRadSWOutAbs(SurfNum) +
-                                state.dataHeatBalSurf->SurfHConvExt(SurfNum) * TempExt +
-                                state.dataHeatBalSurf->SurfQAdditionalHeatSourceOutside(SurfNum) + HSky * TSky + HGrnd * TGround +
-                                HRad * RadTemp + construct.CTFCross[0] * state.dataHeatBalSurf->SurfTempIn(SurfNum)) /
-                            (construct.CTFOutside[0] + state.dataHeatBalSurf->SurfHConvExt(SurfNum) + HRad + HSky + HGrnd);
+                        state.dataHeatBalSurf->SurfHConvExt(SurfNum) * TempExt +
+                        state.dataHeatBalSurf->SurfQAdditionalHeatSourceOutside(SurfNum) + HSky * TSky + HGrnd * TGround +
+                        HRad * RadTemp + construct.CTFCross[0] * state.dataHeatBalSurf->SurfTempIn(SurfNum)) /
+                        (construct.CTFOutside[0] + state.dataHeatBalSurf->SurfHConvExt(SurfNum) + HRad + HSky + HGrnd);
                     } else { // Louvres are completely shut (SurfcladExpos = 1 && KC = 1)
                         //patterned after "No movable insulation, slow conduction," but with new radiation terms and no sun,
                         if (construct.SourceSinkPresent) {
                             TH11 = (-state.dataHeatBalSurf->SurfCTFConstOutPart(SurfNum) + state.dataHeatBalSurf->SurfHConvExt(SurfNum) * TempExt +
-                                    state.dataHeatBalSurf->SurfQAdditionalHeatSourceOutside(SurfNum) + HRad * RadTemp +
-                                    construct.CTFCross[0] * state.dataHeatBalSurf->SurfTempIn(SurfNum) +
-                                    construct.CTFSourceOut[0] * state.dataHeatBalSurf->SurfQsrcHist(SurfNum, 1)) /
+                            state.dataHeatBalSurf->SurfQAdditionalHeatSourceOutside(SurfNum) + HRad * RadTemp +
+                            construct.CTFCross[0] * state.dataHeatBalSurf->SurfTempIn(SurfNum) +
+                            construct.CTFSourceOut[0] * state.dataHeatBalSurf->SurfQsrcHist(SurfNum, 1)) /
                                 (construct.CTFOutside[0] + state.dataHeatBalSurf->SurfHConvExt(SurfNum) + HRad);
                         } else {
                             TH11 = (-state.dataHeatBalSurf->SurfCTFConstOutPart(SurfNum) + state.dataHeatBalSurf->SurfHConvExt(SurfNum) * TempExt +
-                                    state.dataHeatBalSurf->SurfQAdditionalHeatSourceOutside(SurfNum) + HRad * RadTemp +
-                                    construct.CTFCross[0] * state.dataHeatBalSurf->SurfTempIn(SurfNum)) /
-                                (construct.CTFOutside[0] + state.dataHeatBalSurf->SurfHConvExt(SurfNum) + HRad);
+                            state.dataHeatBalSurf->SurfQAdditionalHeatSourceOutside(SurfNum) + HRad * RadTemp +
+                            construct.CTFCross[0] * state.dataHeatBalSurf->SurfTempIn(SurfNum)) /
+                            (construct.CTFOutside[0] + state.dataHeatBalSurf->SurfHConvExt(SurfNum) + HRad);
                         }
                     }
                 } else { // KC == 0
-                    if (construct.SourceSinkPresent) {
-                        TH11 = (-state.dataHeatBalSurf->SurfCTFConstOutPart(SurfNum) + state.dataHeatBalSurf->SurfOpaqQRadSWOutAbs(SurfNum) +
-                                state.dataHeatBalSurf->SurfHSrdSurfExt(SurfNum) * TSrdSurfs +
-                                (state.dataHeatBalSurf->SurfHConvExt(SurfNum) + state.dataHeatBalSurf->SurfHAirExt(SurfNum)) * TempExt +
-                                state.dataHeatBalSurf->SurfQAdditionalHeatSourceOutside(SurfNum) + state.dataHeatBalSurf->SurfHSkyExt(SurfNum) * TSky +
-                                state.dataHeatBalSurf->SurfHGrdExt(SurfNum) * TGround + construct.CTFCross[0] * state.dataHeatBalSurf->SurfTempIn(SurfNum) +
-                                construct.CTFSourceOut[0] * state.dataHeatBalSurf->SurfQsrcHist(SurfNum, 1)) /
-                            (construct.CTFOutside[0] + state.dataHeatBalSurf->SurfHConvExt(SurfNum) + state.dataHeatBalSurf->SurfHAirExt(SurfNum) +
-                                state.dataHeatBalSurf->SurfHSkyExt(SurfNum) + state.dataHeatBalSurf->SurfHGrdExt(SurfNum) +
-                                state.dataHeatBalSurf->SurfHSrdSurfExt(SurfNum)); // ODB used to approx ground surface temp
-                    } else {
-                        TH11 = (-state.dataHeatBalSurf->SurfCTFConstOutPart(SurfNum) + state.dataHeatBalSurf->SurfOpaqQRadSWOutAbs(SurfNum) +
-                                state.dataHeatBalSurf->SurfHSrdSurfExt(SurfNum) * TSrdSurfs +
-                                (state.dataHeatBalSurf->SurfHConvExt(SurfNum) + state.dataHeatBalSurf->SurfHAirExt(SurfNum)) * TempExt +
-                                state.dataHeatBalSurf->SurfQAdditionalHeatSourceOutside(SurfNum) + state.dataHeatBalSurf->SurfHSkyExt(SurfNum) * TSky +
-                                state.dataHeatBalSurf->SurfHGrdExt(SurfNum) * TGround + construct.CTFCross[0] * state.dataHeatBalSurf->SurfTempIn(SurfNum)) /
-                            (construct.CTFOutside[0] + state.dataHeatBalSurf->SurfHConvExt(SurfNum) + state.dataHeatBalSurf->SurfHAirExt(SurfNum) +
-                                state.dataHeatBalSurf->SurfHSkyExt(SurfNum) + state.dataHeatBalSurf->SurfHGrdExt(SurfNum) +
-                                state.dataHeatBalSurf->SurfHSrdSurfExt(SurfNum)); // ODB used to approx ground surface temp
+                    if (state.dataSurface->OSCM(surface.OSCMPtr).EMSOverrideOnSurfSkyExpos && 
+                        state.dataSurface->OSCM(surface.OSCMPtr).EMSOverrideOnSurfGroundExpos &&
+                        (state.dataSurface->OSCM(surface.OSCMPtr).SurfSkyExpos + state.dataSurface->OSCM(surface.OSCMPtr).SurfGroundExpos < 1)) {
+                        Real64 SurfSkyExpos = state.dataSurface->OSCM(surface.OSCMPtr).SurfSkyExpos;
+                        Real64 SurfGroundExpos = state.dataSurface->OSCM(surface.OSCMPtr).SurfGroundExpos;
+                        Real64 SurfcladExpos = 1 - (SurfSkyExpos + SurfGroundExpos);
+
+                        // RadTemp and HRad should be added here altough TRad has been set to be equal to the outdoor dry bulb temp
+                        Real64 RadTemp =
+                            state.dataSurface->OSCM(surface.OSCMPtr).TRad; // local value for Effective radiation temperature for OtherSideConditions model
+                        Real64 HRad = state.dataSurface->OSCM(surface.OSCMPtr).HRad; // local value for effective (linearized) radiation coefficient
+
+                        HRad = HRad * SurfcladExpos;
+                        Real64 HGrnd = state.dataHeatBalSurf->SurfHGrdExt(SurfNum) * SurfGroundExpos;
+                        Real64 HSky = state.dataHeatBalSurf->SurfHSkyExt(SurfNum) * SurfSkyExpos;
+
+                        // implement the new TH11 here (KC = 0, but there is also some view factor with the cladding)
+                        if (construct.SourceSinkPresent) {
+                            TH11 = (-state.dataHeatBalSurf->SurfCTFConstOutPart(SurfNum) + state.dataHeatBalSurf->SurfOpaqQRadSWOutAbs(SurfNum) +
+                                    state.dataHeatBalSurf->SurfHSrdSurfExt(SurfNum) * TSrdSurfs + HRad * RadTemp +  // HRad * RadTemp was added here
+                                    (state.dataHeatBalSurf->SurfHConvExt(SurfNum) + state.dataHeatBalSurf->SurfHAirExt(SurfNum)) * TempExt +
+                                    state.dataHeatBalSurf->SurfQAdditionalHeatSourceOutside(SurfNum) + HSky * TSky +
+                                    HGrnd * TGround + construct.CTFCross[0] * state.dataHeatBalSurf->SurfTempIn(SurfNum) +
+                                    construct.CTFSourceOut[0] * state.dataHeatBalSurf->SurfQsrcHist(SurfNum, 1)) /
+                                (construct.CTFOutside[0] + state.dataHeatBalSurf->SurfHConvExt(SurfNum) + state.dataHeatBalSurf->SurfHAirExt(SurfNum) +
+                                    HSky + HGrnd + HRad +  // HRad was added here. Also, HSky and HGrnd were replaced
+                                    state.dataHeatBalSurf->SurfHSrdSurfExt(SurfNum)); // ODB used to approx ground surface temp
+                        } else {
+                            TH11 = (-state.dataHeatBalSurf->SurfCTFConstOutPart(SurfNum) + state.dataHeatBalSurf->SurfOpaqQRadSWOutAbs(SurfNum) +
+                                    state.dataHeatBalSurf->SurfHSrdSurfExt(SurfNum) * TSrdSurfs + HRad * RadTemp +  // HRad * RadTemp was added here
+                                    (state.dataHeatBalSurf->SurfHConvExt(SurfNum) + state.dataHeatBalSurf->SurfHAirExt(SurfNum)) * TempExt +
+                                    state.dataHeatBalSurf->SurfQAdditionalHeatSourceOutside(SurfNum) + HSky * TSky +
+                                    HGrnd * TGround + construct.CTFCross[0] * state.dataHeatBalSurf->SurfTempIn(SurfNum)) /
+                                (construct.CTFOutside[0] + state.dataHeatBalSurf->SurfHConvExt(SurfNum) + state.dataHeatBalSurf->SurfHAirExt(SurfNum) +
+                                    HSky + HGrnd + HRad +  // HRad was added here. Also, HSky and HGrnd were replaced
+                                    state.dataHeatBalSurf->SurfHSrdSurfExt(SurfNum)); // ODB used to approx ground surface temp
+                        }
+                    } else {  // Sky and Ground exposures are 1, meaning that the there is no cladding in front of the surface at all
+                        if (construct.SourceSinkPresent) {
+                            TH11 = (-state.dataHeatBalSurf->SurfCTFConstOutPart(SurfNum) + state.dataHeatBalSurf->SurfOpaqQRadSWOutAbs(SurfNum) +
+                                    state.dataHeatBalSurf->SurfHSrdSurfExt(SurfNum) * TSrdSurfs +
+                                    (state.dataHeatBalSurf->SurfHConvExt(SurfNum) + state.dataHeatBalSurf->SurfHAirExt(SurfNum)) * TempExt +
+                                    state.dataHeatBalSurf->SurfQAdditionalHeatSourceOutside(SurfNum) + state.dataHeatBalSurf->SurfHSkyExt(SurfNum) * TSky +
+                                    state.dataHeatBalSurf->SurfHGrdExt(SurfNum) * TGround + construct.CTFCross[0] * state.dataHeatBalSurf->SurfTempIn(SurfNum) +
+                                    construct.CTFSourceOut[0] * state.dataHeatBalSurf->SurfQsrcHist(SurfNum, 1)) /
+                                (construct.CTFOutside[0] + state.dataHeatBalSurf->SurfHConvExt(SurfNum) + state.dataHeatBalSurf->SurfHAirExt(SurfNum) +
+                                    state.dataHeatBalSurf->SurfHSkyExt(SurfNum) + state.dataHeatBalSurf->SurfHGrdExt(SurfNum) +
+                                    state.dataHeatBalSurf->SurfHSrdSurfExt(SurfNum)); // ODB used to approx ground surface temp
+                        } else {
+                            TH11 = (-state.dataHeatBalSurf->SurfCTFConstOutPart(SurfNum) + state.dataHeatBalSurf->SurfOpaqQRadSWOutAbs(SurfNum) +
+                                    state.dataHeatBalSurf->SurfHSrdSurfExt(SurfNum) * TSrdSurfs +
+                                    (state.dataHeatBalSurf->SurfHConvExt(SurfNum) + state.dataHeatBalSurf->SurfHAirExt(SurfNum)) * TempExt +
+                                    state.dataHeatBalSurf->SurfQAdditionalHeatSourceOutside(SurfNum) + state.dataHeatBalSurf->SurfHSkyExt(SurfNum) * TSky +
+                                    state.dataHeatBalSurf->SurfHGrdExt(SurfNum) * TGround + construct.CTFCross[0] * state.dataHeatBalSurf->SurfTempIn(SurfNum)) /
+                                (construct.CTFOutside[0] + state.dataHeatBalSurf->SurfHConvExt(SurfNum) + state.dataHeatBalSurf->SurfHAirExt(SurfNum) +
+                                    state.dataHeatBalSurf->SurfHSkyExt(SurfNum) + state.dataHeatBalSurf->SurfHGrdExt(SurfNum) +
+                                    state.dataHeatBalSurf->SurfHSrdSurfExt(SurfNum)); // ODB used to approx ground surface temp
+                        }
                     }
                 }
                 // ```
@@ -9951,7 +10012,7 @@ void CalcOutsideSurfTemp(EnergyPlusData &state,
 
 // XYZXYZXYZ
 
-void CalcExteriorVentedCavity(EnergyPlusData &state, int const SurfNum, Real64 outdoorDryBulbTemp, Real64 zoneTemperature) // index of surface
+void CalcExteriorVentedCavity(EnergyPlusData &state, int const SurfNum) // index of surface
 {
 
     // SUBROUTINE INFORMATION:
@@ -9981,53 +10042,124 @@ void CalcExteriorVentedCavity(EnergyPlusData &state, int const SurfNum, Real64 o
     Real64 holeArea = state.dataHeatBal->ExtVentedCavity(CavNum).ActualArea * state.dataHeatBal->ExtVentedCavity(CavNum).Porosity;
     // Aspect Ratio of gap
     Real64 AspRat = state.dataHeatBal->ExtVentedCavity(CavNum).HdeltaNPL * 2.0 / state.dataHeatBal->ExtVentedCavity(CavNum).PlenGapThick;
-    Real64 TmpTscoll = state.dataHeatBal->ExtVentedCavity(CavNum).TbaffleLast;
+    // --- MODIFICATION: Use two temp variables ---
+    Real64 TmpTsBaffleIn = state.dataHeatBal->ExtVentedCavity(CavNum).TbaffleLast;  // This Replaced TmpTscoll, this is INNER temp
+    Real64 TmpTsBaffleOut = state.dataHeatBal->ExtVentedCavity(CavNum).TbaffleOutLast; // NEW OUTER temp
+    // ---
     Real64 TmpTaPlen = state.dataHeatBal->ExtVentedCavity(CavNum).TairLast;
 
     // Moved here from the bottom
     int thisOSCM = state.dataHeatBal->ExtVentedCavity(CavNum).OSCMPtr;
 
+    // Getting the KC value for the CalcPassiveExteriorBaffleGap function (to set the cladding temp = outdoor dry bulb temp if KC == 0)
+    int KC = 1;  // By default there is a cladding unless explicitly changed
+    if (state.dataSurface->OSCM(thisOSCM).EMSOverrideOnKC) {
+        // If EMS is active, a value of 0.0 from the actuator means retracted.
+        if (state.dataSurface->OSCM(thisOSCM).KCValue == 0.0) {
+            KC = 0;
+        }
+    }
+
+    // Getting the baffle--underlying-surface exposure for the LWR calculations
+    Real64 SOExpose = 1.0;  // By default, fully exposed to the underlying surface
+    if (state.dataSurface->OSCM(thisOSCM).EMSOverrideOnSurfSkyExpos && state.dataSurface->OSCM(thisOSCM).EMSOverrideOnSurfGroundExpos &&
+        (state.dataSurface->OSCM(thisOSCM).SurfSkyExpos + state.dataSurface->OSCM(thisOSCM).SurfGroundExpos > 0)) {
+            SOExpose = 1 - (state.dataSurface->OSCM(thisOSCM).SurfSkyExpos + state.dataSurface->OSCM(thisOSCM).SurfGroundExpos);
+    }
+
     // all the work is done in this routine located in GeneralRoutines.cc
 
-    for (int iter = 1; iter <= 3; ++iter) { // this is a sequential solution approach.
+    // --- START: NEW CONDITIONAL LOGIC ("THE SWITCH") ---
+    if (state.dataSurface->OSCM(thisOSCM).EMSOverrideOnCladThermTrans) {
+        // --- A. TWO-NODE MODEL IS ACTIVE ---
+        Real64 BaffleCondCoeff = state.dataSurface->OSCM(thisOSCM).CladdingThermalTransmittance;
 
-        TranspiredCollector::CalcPassiveExteriorBaffleGap(state,
-                                                          state.dataHeatBal->ExtVentedCavity(CavNum).SurfPtrs,
-                                                          holeArea,
-                                                          state.dataHeatBal->ExtVentedCavity(CavNum).Cv,
-                                                          state.dataHeatBal->ExtVentedCavity(CavNum).Cd,
-                                                          state.dataHeatBal->ExtVentedCavity(CavNum).HdeltaNPL,
-                                                          state.dataHeatBal->ExtVentedCavity(CavNum).SolAbsorp,
-                                                          state.dataHeatBal->ExtVentedCavity(CavNum).LWEmitt,
-                                                          state.dataHeatBal->ExtVentedCavity(CavNum).Tilt,
-                                                          AspRat,
-                                                          state.dataHeatBal->ExtVentedCavity(CavNum).PlenGapThick,
-                                                          state.dataHeatBal->ExtVentedCavity(CavNum).BaffleRoughness,
-                                                          state.dataHeatBal->ExtVentedCavity(CavNum).QdotSource,
-                                                          TmpTscoll,
-                                                          TmpTaPlen,
-                                                          state.dataSurface->OSCM(thisOSCM).EMSOverrideOnCladTotSolAbs,
-                                                          state.dataSurface->OSCM(thisOSCM).CladTotSolAbs,
-                                                          state.dataSurface->OSCM(thisOSCM).EMSOverrideOnBaffleTemp,
-                                                          state.dataSurface->OSCM(thisOSCM).BaffleTemp,
-                                                          state.dataSurface->OSCM(thisOSCM).EMSOverrideOnCavityAirTemp,
-                                                          state.dataSurface->OSCM(thisOSCM).CavityAirTemp,
-                                                          state.dataSurface->OSCM(thisOSCM).EMSOverrideOnCavityAirVelo,
-                                                          state.dataSurface->OSCM(thisOSCM).CavityAirVelo,
-                                                          HcPlen,
-                                                          HrPlen,
-                                                          Isc,
-                                                          MdotVent,
-                                                          VdotWind,
-                                                          VdotThermal);
+        for (int iter = 1; iter <= 3; ++iter) { // this is a sequential solution approach.
+            TranspiredCollector::CalcPassiveExteriorBaffleGap(state,
+                                                              state.dataHeatBal->ExtVentedCavity(CavNum).SurfPtrs,
+                                                              holeArea,
+                                                              state.dataHeatBal->ExtVentedCavity(CavNum).Cv,
+                                                              state.dataHeatBal->ExtVentedCavity(CavNum).Cd,
+                                                              state.dataHeatBal->ExtVentedCavity(CavNum).HdeltaNPL,
+                                                              state.dataHeatBal->ExtVentedCavity(CavNum).SolAbsorp,
+                                                              state.dataHeatBal->ExtVentedCavity(CavNum).LWEmitt,
+                                                              state.dataHeatBal->ExtVentedCavity(CavNum).Tilt,
+                                                              AspRat,
+                                                              state.dataHeatBal->ExtVentedCavity(CavNum).PlenGapThick,
+                                                              state.dataHeatBal->ExtVentedCavity(CavNum).BaffleRoughness,
+                                                              state.dataHeatBal->ExtVentedCavity(CavNum).QdotSource,
+                                                              TmpTsBaffleOut, // Pass TmpTsBaffleOut
+                                                              TmpTsBaffleIn,  // Pass TmpTsBaffleIn
+                                                              TmpTaPlen,
+                                                              BaffleCondCoeff, // NEW k/L argument
+                                                              SOExpose,
+                                                              KC,
+                                                              state.dataSurface->OSCM(thisOSCM).EMSOverrideOnCladTotSolAbs,
+                                                              state.dataSurface->OSCM(thisOSCM).CladTotSolAbs,
+                                                              state.dataSurface->OSCM(thisOSCM).EMSOverrideOnBaffleTemp,
+                                                              state.dataSurface->OSCM(thisOSCM).BaffleTemp,
+                                                              state.dataSurface->OSCM(thisOSCM).EMSOverrideOnCavityAirTemp,
+                                                              state.dataSurface->OSCM(thisOSCM).CavityAirTemp,
+                                                              state.dataSurface->OSCM(thisOSCM).EMSOverrideOnCavityAirVelo,
+                                                              state.dataSurface->OSCM(thisOSCM).CavityAirVelo,
+                                                              HcPlen,
+                                                              HrPlen,
+                                                              Isc,
+                                                              MdotVent,
+                                                              VdotWind,
+                                                              VdotThermal);
+
+        } // sequential solution
+    
+    } else {
+        // --- B. ONE-NODE MODEL IS ACTIVE (Original Path) ---
+        for (int iter = 1; iter <= 3; ++iter) { // this is a sequential solution approach.
+
+            TranspiredCollector::CalcPassiveExteriorBaffleGap(state,
+                                                              state.dataHeatBal->ExtVentedCavity(CavNum).SurfPtrs,
+                                                              holeArea,
+                                                              state.dataHeatBal->ExtVentedCavity(CavNum).Cv,
+                                                              state.dataHeatBal->ExtVentedCavity(CavNum).Cd,
+                                                              state.dataHeatBal->ExtVentedCavity(CavNum).HdeltaNPL,
+                                                              state.dataHeatBal->ExtVentedCavity(CavNum).SolAbsorp,
+                                                              state.dataHeatBal->ExtVentedCavity(CavNum).LWEmitt,
+                                                              state.dataHeatBal->ExtVentedCavity(CavNum).Tilt,
+                                                              AspRat,
+                                                              state.dataHeatBal->ExtVentedCavity(CavNum).PlenGapThick,
+                                                              state.dataHeatBal->ExtVentedCavity(CavNum).BaffleRoughness,
+                                                              state.dataHeatBal->ExtVentedCavity(CavNum).QdotSource,
+                                                              TmpTsBaffleIn, // Pass TmpTsBaffleIn (as the old TmpTscoll)
+                                                              TmpTaPlen,
+                                                              KC,
+                                                              state.dataSurface->OSCM(thisOSCM).EMSOverrideOnCladTotSolAbs,
+                                                              state.dataSurface->OSCM(thisOSCM).CladTotSolAbs,
+                                                              state.dataSurface->OSCM(thisOSCM).EMSOverrideOnBaffleTemp,
+                                                              state.dataSurface->OSCM(thisOSCM).BaffleTemp,
+                                                              state.dataSurface->OSCM(thisOSCM).EMSOverrideOnCavityAirTemp,
+                                                              state.dataSurface->OSCM(thisOSCM).CavityAirTemp,
+                                                              state.dataSurface->OSCM(thisOSCM).EMSOverrideOnCavityAirVelo,
+                                                              state.dataSurface->OSCM(thisOSCM).CavityAirVelo,
+                                                              HcPlen,
+                                                              HrPlen,
+                                                              Isc,
+                                                              MdotVent,
+                                                              VdotWind,
+                                                              VdotThermal);
 
 
-    } // sequential solution
+        } // sequential solution
 
+        // For consistency, set outer temp = inner temp when EMS is off
+        TmpTsBaffleOut = TmpTsBaffleIn;
+    }
+    // --- END: NEW CONDITIONAL LOGIC ("THE SWITCH") ---
     // now fill results into derived types
     state.dataHeatBal->ExtVentedCavity(CavNum).Isc = Isc;
     state.dataHeatBal->ExtVentedCavity(CavNum).TAirCav = TmpTaPlen;
-    state.dataHeatBal->ExtVentedCavity(CavNum).Tbaffle = TmpTscoll;
+    // --- MODIFICATION: Store both temperatures ---
+    state.dataHeatBal->ExtVentedCavity(CavNum).Tbaffle = TmpTsBaffleIn; // This is Tbaffle_In
+    state.dataHeatBal->ExtVentedCavity(CavNum).TbaffleOut = TmpTsBaffleOut; // This is Tbaffle_Out
+    // ---
     state.dataHeatBal->ExtVentedCavity(CavNum).HrPlen = HrPlen;
     state.dataHeatBal->ExtVentedCavity(CavNum).HcPlen = HcPlen;
     state.dataHeatBal->ExtVentedCavity(CavNum).PassiveACH =
@@ -10039,7 +10171,10 @@ void CalcExteriorVentedCavity(EnergyPlusData &state, int const SurfNum, Real64 o
 
     // now do some updates
     state.dataHeatBal->ExtVentedCavity(CavNum).TairLast = state.dataHeatBal->ExtVentedCavity(CavNum).TAirCav;
-    state.dataHeatBal->ExtVentedCavity(CavNum).TbaffleLast = state.dataHeatBal->ExtVentedCavity(CavNum).Tbaffle;
+    // --- MODIFICATION: Update both "Last" temperatures ---
+    state.dataHeatBal->ExtVentedCavity(CavNum).TbaffleLast = state.dataHeatBal->ExtVentedCavity(CavNum).Tbaffle; // This is Tbaffle_In_Last
+    state.dataHeatBal->ExtVentedCavity(CavNum).TbaffleOutLast = state.dataHeatBal->ExtVentedCavity(CavNum).TbaffleOut; // NEW
+    // ---
 
     // update the OtherSideConditionsModel coefficients. --> moved to the top
     // int thisOSCM = state.dataHeatBal->ExtVentedCavity(CavNum).OSCMPtr;

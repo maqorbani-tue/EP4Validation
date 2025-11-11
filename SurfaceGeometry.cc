@@ -7965,12 +7965,21 @@ namespace SurfaceGeometry {
                 state.dataHeatBal->ExtVentedCavity(Item).ProjArea * state.dataHeatBal->ExtVentedCavity(Item).AreaRatio;
 
             SetupOutputVariable(state,
-                                "Surface Exterior Cavity Baffle Surface Temperature",
+                                "Surface Exterior Cavity Baffle Surface Temperature", // This is now Tbaffle_In
                                 OutputProcessor::Unit::C,
                                 state.dataHeatBal->ExtVentedCavity(Item).Tbaffle,
                                 OutputProcessor::SOVTimeStepType::System,
                                 OutputProcessor::SOVStoreType::Average,
                                 state.dataHeatBal->ExtVentedCavity(Item).Name);
+            // New output variable
+            SetupOutputVariable(state,
+                                "Surface Exterior Cavity Baffle Outside Temperature", // This is Tbaffle_Out
+                                OutputProcessor::Unit::C,
+                                state.dataHeatBal->ExtVentedCavity(Item).TbaffleOut,
+                                OutputProcessor::SOVTimeStepType::System,
+                                OutputProcessor::SOVStoreType::Average,
+                                state.dataHeatBal->ExtVentedCavity(Item).Name);
+            // End of new output variable
             SetupOutputVariable(state,
                                 "Surface Exterior Cavity Air Drybulb Temperature",
                                 OutputProcessor::Unit::C,
@@ -12227,6 +12236,14 @@ namespace SurfaceGeometry {
                                  "[m/s]",
                                  state.dataSurface->OSCM(OSCMNum).EMSOverrideOnCavityAirVelo,
                                  state.dataSurface->OSCM(OSCMNum).CavityAirVelo);
+                // ``` New EMS actuator for the Cavity Thermal Tranmittance
+                SetupEMSActuator(state,
+                                 "SurfaceProperty:ExteriorNaturallyVentedCavity",
+                                 state.dataSurface->OSCM(OSCMNum).Name,
+                                 "Cladding Thermal Transmittance",
+                                 "[W/m2K]", // This is k/L
+                                 state.dataSurface->OSCM(OSCMNum).EMSOverrideOnCladThermTrans,
+                                 state.dataSurface->OSCM(OSCMNum).CladdingThermalTransmittance);
                 // ``` End of modification
                                 }
                             }

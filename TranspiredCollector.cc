@@ -1934,6 +1934,7 @@ namespace TranspiredCollector {
                                       Real64 const QdotSource,                    // Source/sink term, e.g. electricity exported from solar cell [W]
                                       Real64 &TsBaffle,                           // Temperature of baffle (both sides) use lagged value on input [C]
                                       Real64 &TaGap, // Temperature of air gap (assumed mixed) use lagged value on input [C]
+                                      int const KC,
                                       bool const EMSOverrideOnCladTotSolAbs,
                                       Real64 const CladTotSolAbs,
                                       bool const EMSOverrideOnBaffleTemp,
@@ -2183,6 +2184,311 @@ namespace TranspiredCollector {
             TaGap = (HcPlen * A * Tso + MdotVent * CpAir * Tamb + HcPlen * A * TsBaffle) / (HcPlen * A + MdotVent * CpAir + HcPlen * A);
         } else {
             TaGap = CavityAirTemp; // use EMS override value
+        }
+
+        if (KC == 0) {
+            TsBaffle = LocalOutDryBulbTemp;
+            TaGap = Tamb;
+        }
+        // ```
+
+        if (present(HcGapRpt)) HcGapRpt = HcPlen;
+        if (present(HrGapRpt)) HrGapRpt = HrPlen;
+        if (present(IscRpt)) IscRpt = Isc;
+        if (present(MdotVentRpt)) MdotVentRpt = MdotVent;
+        if (present(VdotWindRpt)) VdotWindRpt = VdotWind;
+        if (present(VdotBuoyRpt)) VdotBuoyRpt = VdotThermal;
+    } // ```
+
+    // ``` This is another function overload
+    void CalcPassiveExteriorBaffleGap(EnergyPlusData &state,
+                                      const Array1D_int &SurfPtrARR, // Array of indexes pointing to Surface structure in DataSurfaces
+                                      Real64 const VentArea,         // Area available for venting the gap [m2]
+                                      Real64 const Cv,               // Orifice coefficient for volume-based discharge, wind-driven [--]
+                                      Real64 const Cd,               // Orifice coefficient for discharge,  buoyancy-driven [--]
+                                      Real64 const HdeltaNPL,        // Height difference from neutral pressure level [m]
+                                      Real64 const SolAbs,           // solar absorptivity of baffle [--]
+                                      Real64 const AbsExt,           // thermal absorptance/emittance of baffle material [--]
+                                      Real64 const Tilt,             // Tilt of gap [Degrees]
+                                      Real64 const AspRat,           // aspect ratio of gap  Height/gap [--]
+                                      Real64 const GapThick,         // Thickness of air space between baffle and underlying heat transfer surface
+                                      Material::SurfaceRoughness const Roughness, // Roughness index (1-6), see DataHeatBalance parameters
+                                      Real64 const QdotSource,                    // Source/sink term, e.g. electricity exported from solar cell [W]
+                                      Real64 &TsBaffleOut,                          // NEW: Temperature of baffle OUTSIDE face [C]
+                                      Real64 &TsBaffleIn,                           // NEW: Temperature of baffle INSIDE face [C]
+                                      Real64 &TaGap, // Temperature of air gap (assumed mixed) use lagged value on input [C]
+                                      Real64 const BaffleCondCoeff, // NEW: Cladding k/L value [W/m2K]
+                                      Real64 const SOExposure,  // Exposure fraction of the baffle to the underlying surface
+                                      int const KC,
+                                      bool const EMSOverrideOnCladTotSolAbs,
+                                      Real64 const CladTotSolAbs,
+                                      bool const EMSOverrideOnBaffleTemp,
+                                      Real64 const BaffleTemp,
+                                      bool const EMSOverrideOnCavityAirTemp,
+                                      Real64 const CavityAirTemp,
+                                      bool const EMSOverrideOnCavityAirVelo,
+                                      Real64 const CavityAirVelo,
+                                      ObjexxFCL::Optional<Real64> HcGapRpt,
+                                      ObjexxFCL::Optional<Real64> HrGapRpt,
+                                      ObjexxFCL::Optional<Real64> IscRpt,
+                                      ObjexxFCL::Optional<Real64> MdotVentRpt,
+                                      ObjexxFCL::Optional<Real64> VdotWindRpt,
+                                      ObjexxFCL::Optional<Real64> VdotBuoyRpt)
+    {
+
+        // SUBROUTINE INFORMATION:
+        //       AUTHOR         B.T. Griffith
+        //       DATE WRITTEN   November 2004
+        //       MODIFIED       BG March 2007 outdoor conditions from surface for height-dependent conditions
+
+        // PURPOSE OF THIS SUBROUTINE:
+        // model the effect of the a ventilated baffle covering the outside of a heat transfer surface.
+        // return calculated temperatures and certain intermediate values for reporting
+
+        // METHODOLOGY EMPLOYED:
+        // Heat balances on baffle and air space.
+        // Natural ventilation calculations use buoyancy and wind.
+
+        // REFERENCES:
+        // Nat. Vent. equations from ASHRAE HoF 2001 Chapt. 26
+
+        // SUBROUTINE PARAMETER DEFINITIONS:
+        Real64 constexpr g = 9.807;          // gravitational constant (m/s**2)
+        Real64 constexpr nu = 15.66e-6;      // kinematic viscosity (m**2/s) for air at 300 K (Mills 1999 Heat Transfer)
+        Real64 constexpr k = 0.0267;         // thermal conductivity (W/m K) for air at 300 K (Mills 1999 Heat Transfer)
+        Real64 constexpr Sigma = 5.6697e-08; // Stefan-Boltzmann constant
+        static constexpr std::string_view RoutineName = "CalcPassiveExteriorBaffleGap";
+        // INTERFACE BLOCK SPECIFICATIONS:
+
+        // DERIVED TYPE DEFINITIONS:
+
+        // SUBROUTINE LOCAL VARIABLE DECLARATIONS:
+
+        // following arrays are used to temporarily hold results from multiple underlying surfaces
+        Array1D<Real64> HSkyARR;
+        Array1D<Real64> HGroundARR;
+        Array1D<Real64> HAirARR;
+        Array1D<Real64> HPlenARR;
+        Array1D<Real64> HExtARR;
+        Array1D<Real64> LocalWindArr;
+        Array1D<Real64> HSrdSurfARR;
+
+        // local working variables
+        Real64 Tamb;                  // outdoor drybulb
+        Real64 VdotThermal;           // Volume flow rate of nat. vent due to buoyancy
+        Real64 LocalOutDryBulbTemp;   // OutDryBulbTemp for here
+        Real64 LocalWetBulbTemp;      // OutWetBulbTemp for here
+        Real64 LocalOutHumRat;        // OutHumRat for here
+        bool ICSCollectorIsOn(false); // ICS collector has OSCM on
+        int CollectorNum;             // current solar collector index
+        Real64 ICSWaterTemp;          // ICS solar collector water temp
+        Real64 ICSULossbottom;        // ICS solar collector bottom loss Conductance
+        Real64 sum_area = 0.0;
+        Real64 sum_produc_area_drybulb = 0.0;
+        Real64 sum_produc_area_wetbulb = 0.0;
+        for (int SurfNum : SurfPtrARR) {
+            sum_area += state.dataSurface->Surface(SurfNum).Area;
+            sum_produc_area_drybulb += state.dataSurface->Surface(SurfNum).Area * state.dataSurface->SurfOutDryBulbTemp(SurfNum);
+            sum_produc_area_wetbulb += state.dataSurface->Surface(SurfNum).Area * state.dataSurface->SurfOutWetBulbTemp(SurfNum);
+        }
+        //    LocalOutDryBulbTemp = sum( Surface( SurfPtrARR ).Area * Surface( SurfPtrARR ).OutDryBulbTemp ) / sum( Surface( SurfPtrARR ).Area );
+        LocalOutDryBulbTemp = sum_produc_area_drybulb / sum_area; // Autodesk:F2C++ Functions handle array subscript usage
+        //    LocalWetBulbTemp = sum( Surface( SurfPtrARR ).Area * Surface( SurfPtrARR ).OutWetBulbTemp ) / sum( Surface( SurfPtrARR ).Area );
+        LocalWetBulbTemp = sum_produc_area_wetbulb / sum_area;
+
+        LocalOutHumRat = Psychrometrics::PsyWFnTdbTwbPb(state, LocalOutDryBulbTemp, LocalWetBulbTemp, state.dataEnvrn->OutBaroPress, RoutineName);
+
+        Real64 RhoAir = Psychrometrics::PsyRhoAirFnPbTdbW(state, state.dataEnvrn->OutBaroPress, LocalOutDryBulbTemp, LocalOutHumRat, RoutineName);
+        Real64 CpAir = Psychrometrics::PsyCpAirFnW(LocalOutHumRat);
+        if (!state.dataEnvrn->IsRain) {
+            Tamb = LocalOutDryBulbTemp;
+        } else { // when raining we use wetbulb not drybulb
+            Tamb = LocalWetBulbTemp;
+        }
+        Real64 A = sum_area;        // projected area of baffle from sum of underlying surfaces
+        Real64 TmpTsBafOut = TsBaffleOut; // Use OUTSIDE temp for external coefficients
+        Real64 TmpTsBafIn = TsBaffleIn;   // Use INSIDE temp for cavity coefficients
+
+        // loop through underlying surfaces and collect needed data
+        int NumSurfs = size(SurfPtrARR); // number of underlying HT surfaces associated with UTSC
+        HSkyARR.dimension(NumSurfs, 0.0);
+        HGroundARR.dimension(NumSurfs, 0.0);
+        HAirARR.dimension(NumSurfs, 0.0);
+        LocalWindArr.dimension(NumSurfs, 0.0);
+        HPlenARR.dimension(NumSurfs, 0.0);
+        HExtARR.dimension(NumSurfs, 0.0);
+        HSrdSurfARR.dimension(NumSurfs, 0.0);
+
+        for (int ThisSurf = 1; ThisSurf <= NumSurfs; ++ThisSurf) {
+            int SurfPtr = SurfPtrARR(ThisSurf);
+            // Initializations for this surface
+            Real64 HMovInsul = 0.0;
+            LocalWindArr(ThisSurf) = state.dataSurface->SurfOutWindSpeed(SurfPtr);
+            Convect::InitExtConvCoeff(state,
+                                      SurfPtr,
+                                      HMovInsul,
+                                      Roughness,
+                                      AbsExt,
+                                      TmpTsBafOut,
+                                      HExtARR(ThisSurf),
+                                      HSkyARR(ThisSurf),
+                                      HGroundARR(ThisSurf),
+                                      HAirARR(ThisSurf),
+                                      HSrdSurfARR(ThisSurf));
+            int ConstrNum = state.dataSurface->Surface(SurfPtr).Construction;
+            Real64 AbsThermSurf =
+                dynamic_cast<Material::MaterialChild *>(state.dataMaterial->Material(state.dataConstruction->Construct(ConstrNum).LayerPoint(1)))
+                    ->AbsorpThermal;
+            Real64 TsoK = state.dataHeatBalSurf->SurfOutsideTempHist(1)(SurfPtr) + Constant::KelvinConv;
+            Real64 TsBaffK = TmpTsBafIn + Constant::KelvinConv;
+            if (TsBaffK == TsoK) {        // avoid divide by zero
+                HPlenARR(ThisSurf) = 0.0; // no net heat transfer if same temperature
+            } else {
+                HPlenARR(ThisSurf) = Sigma * AbsExt * AbsThermSurf * (pow_4(TsBaffK) - pow_4(TsoK)) / (TsBaffK - TsoK);
+            }
+            // Added for ICS collector OSCM
+            if (state.dataSurface->SurfIsICS(SurfPtr)) {
+                ICSCollectorIsOn = true;
+                CollectorNum = state.dataSurface->SurfICSPtr(SurfPtr);
+            }
+        }
+
+        if (ICSCollectorIsOn) {
+            if (state.dataGlobal->BeginEnvrnFlag && state.dataGeneralRoutines->MyICSEnvrnFlag) {
+                ICSULossbottom = 0.40;
+                ICSWaterTemp = 20.0;
+            } else {
+                if (!state.dataSolarCollectors->Collector.allocated()) {
+                    ICSULossbottom = 0.40;
+                    ICSWaterTemp = 20.0;
+                } else {
+                    ICSULossbottom = state.dataSolarCollectors->Collector(CollectorNum).UbLoss;
+                    ICSWaterTemp = state.dataSolarCollectors->Collector(CollectorNum).TempOfWater;
+                    state.dataGeneralRoutines->MyICSEnvrnFlag = false;
+                }
+            }
+        }
+        if (!state.dataGlobal->BeginEnvrnFlag) {
+            state.dataGeneralRoutines->MyICSEnvrnFlag = true;
+        }
+        if (A == 0.0) { // should have been caught earlier
+        }
+        Array1D<Real64> Area(
+            array_sub(state.dataSurface->Surface,
+                      &DataSurfaces::SurfaceData::Area,
+                      SurfPtrARR)); // Autodesk:F2C++ Copy of subscripted Area array for use below: This makes a copy so review wrt performance
+        // now figure area-weighted averages from underlying surfaces.
+        Real64 Vwind = sum(LocalWindArr * Area) / A; // area weighted average of wind velocity
+        LocalWindArr.deallocate();
+        Real64 HrSky = sum(HSkyARR * Area) / A; // radiation coeff for sky, area-weighted average
+        HSkyARR.deallocate();
+        Real64 HrGround = sum(HGroundARR * Area) / A; // radiation coeff for ground, area-weighted average
+        HGroundARR.deallocate();
+        Real64 HrAtm = sum(HAirARR * Area) / A; // radiation coeff for air (bulk atmosphere), area-weighted average
+        HAirARR.deallocate();
+        Real64 HrPlen = sum(HPlenARR * Area) / A; // radiation coeff for plenum surfaces, area-weighted average
+        HPlenARR.deallocate();
+        Real64 HExt = sum(HExtARR * Area) / A; // dummy for call to InitExteriorConvectionCoeff
+        HExtARR.deallocate();
+        HSrdSurfARR.deallocate();
+
+        if (state.dataEnvrn->IsRain) HExt = 1000.0;
+
+        // temperature of underlying surface, area-weighted average
+        Real64 Tso =
+            sum_product_sub(state.dataHeatBalSurf->SurfOutsideTempHist(1), state.dataSurface->Surface, &DataSurfaces::SurfaceData::Area, SurfPtrARR) /
+            A;
+        // Incoming combined solar radiation, area-weighted average
+        Real64 Isc =
+            sum_product_sub(state.dataHeatBal->SurfQRadSWOutIncident, state.dataSurface->Surface, &DataSurfaces::SurfaceData::Area, SurfPtrARR) / A;
+        // average of surface temps , for Beta in Grashoff no.
+        Real64 TmeanK = 0.5 * (TmpTsBafIn + Tso) + Constant::KelvinConv;
+        // Grasshof number for natural convection calc
+        Real64 Gr = g * pow_3(GapThick) * std::abs(Tso - TmpTsBafIn) * pow_2(RhoAir) / (TmeanK * pow_2(nu));
+
+        Real64 NuPlen = PassiveGapNusseltNumber(AspRat, Tilt, TmpTsBafIn, Tso, Gr); // intentionally switch Tso to Tsi
+        Real64 HcPlen = NuPlen * (k / GapThick);                                  // surface convection heat transfer coefficient for plenum surfaces
+
+        // ```
+        Real64 VdotWind;
+        Real64 MdotVent;
+
+        if (!EMSOverrideOnCavityAirVelo) {
+            // now model natural ventilation of plenum gap.
+            VdotWind = Cv * (VentArea / 2.0) * Vwind; // volume flow rate of nat. vent due to wind
+
+            if (TaGap > Tamb) {
+                VdotThermal = Cd * (VentArea / 2.0) * std::sqrt(2.0 * g * HdeltaNPL * (TaGap - Tamb) / (TaGap + Constant::KelvinConv));
+            } else if (TaGap == Tamb) {
+                VdotThermal = 0.0;
+            } else {
+                if ((std::abs(Tilt) < 5.0) || (std::abs(Tilt - 180.0) < 5.0)) {
+                    VdotThermal = 0.0; // stable buoyancy situation
+                } else {
+                    VdotThermal = Cd * (VentArea / 2.0) * std::sqrt(2.0 * g * HdeltaNPL * (Tamb - TaGap) / (Tamb + Constant::KelvinConv));
+                }
+            }
+
+            Real64 VdotVent = VdotWind + VdotThermal; // total volume flow rate of nat vent
+            MdotVent = VdotVent * RhoAir;      // total mass flow rate of nat vent
+        } else {
+            // Override with EMS value
+            // Convert velocity [m/s] to mass flow rate [kg/s]
+            // Mdot = rho * V * A. The area is the cross-section of the gap at the inlet/outlet.
+            Real64 InletOutletArea = VentArea / 2.0;
+            MdotVent = RhoAir * CavityAirVelo * InletOutletArea;
+            // Zero out the components for reporting consistency
+            VdotWind = 0.0;
+            VdotThermal = 0.0;
+        }
+        // ```
+
+        // 1. Calculate the OUTER baffle surface temperature
+        if (!EMSOverrideOnBaffleTemp) {
+            Real64 NumeratorOut;
+            if (EMSOverrideOnCladTotSolAbs) {
+                NumeratorOut = (CladTotSolAbs + QdotSource) + (HExt + HrAtm + HrGround) * Tamb +
+                            HrSky * state.dataEnvrn->SkyTemp + BaffleCondCoeff * TsBaffleIn; // Use TsBaffleIn
+            } else {
+                NumeratorOut = (Isc * SolAbs + QdotSource) + (HExt + HrAtm + HrGround) * Tamb +
+                            HrSky * state.dataEnvrn->SkyTemp + BaffleCondCoeff * TsBaffleIn; // Use TsBaffleIn
+            }
+            Real64 DenominatorOut = (HExt + HrAtm + HrSky + HrGround) + BaffleCondCoeff;
+            if (std::abs(DenominatorOut) > 1e-9) { // Avoid division by zero
+                TsBaffleOut = NumeratorOut / DenominatorOut;
+            } else {
+                TsBaffleOut = Tamb; // Fallback
+            }
+        } else {
+            TsBaffleOut = BaffleTemp; // Use EMS override value
+            TsBaffleIn = BaffleTemp;  // Make sure both are set
+        }
+
+        // 2. Calculate the INNER baffle surface temperature (using the NEWLY calculated TsBaffleOut)
+        if (!EMSOverrideOnBaffleTemp) {
+            Real64 NumeratorIn = HcPlen * TaGap + HrPlen * SOExposure * Tso + BaffleCondCoeff * TsBaffleOut; // Use new TsBaffleOut
+            Real64 DenominatorIn = HcPlen + HrPlen + BaffleCondCoeff;
+            if (std::abs(DenominatorIn) > 1e-9) { // Avoid division by zero
+                TsBaffleIn = NumeratorIn / DenominatorIn;
+            } else {
+                TsBaffleIn = TaGap; // Fallback
+            }
+        } else {
+            TsBaffleIn = BaffleTemp; // Use EMS override value
+        }
+
+        // 3. Calculate the GAP AIR temperature (using the NEWLY calculated TsBaffleIn)
+        if (!EMSOverrideOnCavityAirTemp) {
+            TaGap = (HcPlen * A * Tso + MdotVent * CpAir * Tamb + HcPlen * A * TsBaffleIn) / // Use new TsBaffleIn
+                    (HcPlen * A + MdotVent * CpAir + HcPlen * A);
+        } else {
+            TaGap = CavityAirTemp; // use EMS override value
+        }
+
+        if (KC == 0) {
+            TsBaffleOut = LocalOutDryBulbTemp; // Set OUTSIDE temp to ambient
+            TsBaffleIn = LocalOutDryBulbTemp;  // Set INSIDE temp to ambient
+            TaGap = Tamb;
         }
         // ```
 

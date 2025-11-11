@@ -1193,6 +1193,9 @@ namespace DataSurfaces {
         // ``` Cavity air velocity actuator
         bool EMSOverrideOnCavityAirVelo{false};
         Real64 CavityAirVelo;
+        // ``` Cavity Thermal Tranmittance actuator
+        bool EMSOverrideOnCladThermTrans{false};
+        Real64 CladdingThermalTransmittance;
         // bool ActuatorIsInitialized{false}; // Flag to register actuator only once  // This was moved to SurfaceGeometry.cc
         // ``` End of the change
 

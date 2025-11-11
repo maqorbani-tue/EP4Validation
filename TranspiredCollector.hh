@@ -217,6 +217,41 @@ namespace TranspiredCollector {
                                       Real64 const QdotSource,                    // Source/sink term, e.g. electricity exported from solar cell [W]
                                       Real64 &TsBaffle,                           // Temperature of baffle (both sides) use lagged value on input [C]
                                       Real64 &TaGap, // Temperature of air gap (assumed mixed) use lagged value on input [C]
+                                      int const KC,
+                                      bool const EMSOverrideOnCladTotSolAbs,
+                                      Real64 const CladTotSolAbs,
+                                      bool const EMSOverrideOnBaffleTemp,
+                                      Real64 const BaffleTemp,
+                                      bool const EMSOverrideOnCavityAirTemp,
+                                      Real64 const CavityAirTemp,
+                                      bool const EMSOverrideOnCavityAirVelo,
+                                      Real64 const CavityAirVelo,
+                                      ObjexxFCL::Optional<Real64> HcGapRpt = _,
+                                      ObjexxFCL::Optional<Real64> HrGapRpt = _,
+                                      ObjexxFCL::Optional<Real64> IscRpt = _,
+                                      ObjexxFCL::Optional<Real64> MdotVentRpt = _,
+                                      ObjexxFCL::Optional<Real64> VdotWindRpt = _,
+                                      ObjexxFCL::Optional<Real64> VdotBuoyRpt = _);
+
+    void CalcPassiveExteriorBaffleGap(EnergyPlusData &state,
+                                      const Array1D_int &SurfPtrARR, // Array of indexes pointing to Surface structure in DataSurfaces
+                                      Real64 const VentArea,         // Area available for venting the gap [m2]
+                                      Real64 const Cv,               // Oriface coefficient for volume-based discharge, wind-driven [--]
+                                      Real64 const Cd,               // oriface coefficient for discharge,  buoyancy-driven [--]
+                                      Real64 const HdeltaNPL,        // Height difference from neutral pressure level [m]
+                                      Real64 const SolAbs,           // solar absorptivity of baffle [--]
+                                      Real64 const AbsExt,           // thermal absorptance/emittance of baffle material [--]
+                                      Real64 const Tilt,             // Tilt of gap [Degrees]
+                                      Real64 const AspRat,           // aspect ratio of gap  Height/gap [--]
+                                      Real64 const GapThick,         // Thickness of air space between baffle and underlying heat transfer surface
+                                      Material::SurfaceRoughness const Roughness, // Roughness index (1-6), see DataHeatBalance parameters
+                                      Real64 const QdotSource,                    // Source/sink term, e.g. electricity exported from solar cell [W]
+                                      Real64 &TsBaffleOut,                        // NEW: Temperature of baffle OUTSIDE face [C]
+                                      Real64 &TsBaffleIn,                         // NEW: Temperature of baffle INSIDE face [C]
+                                      Real64 &TaGap, // Temperature of air gap (assumed mixed) use lagged value on input [C]
+                                      Real64 const BaffleCondCoeff, // NEW: Cladding k/L value [W/m2K]
+                                      Real64 const SOExposure,  // Exposure fraction of the baffle to the underlying surface
+                                      int const KC,
                                       bool const EMSOverrideOnCladTotSolAbs,
                                       Real64 const CladTotSolAbs,
                                       bool const EMSOverrideOnBaffleTemp,

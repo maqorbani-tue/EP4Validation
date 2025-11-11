@@ -923,8 +923,10 @@ namespace DataHeatBalance {
         Vector Centroid;    // computed centroid
         Real64 TAirCav;     // modeled drybulb temperature for air between baffle and wall [C]
         Real64 Tbaffle;     // modeled surface temperature for baffle[C]
+        Real64 TbaffleOut;  // NEW: modeled surface temperature for baffle OUTSIDE face [C]
         Real64 TairLast;    // Old Value for modeled drybulb temp of air between baffle and wall [C]
         Real64 TbaffleLast; // Old value for modeled surface temperature for baffle [C]
+        Real64 TbaffleOutLast; // NEW: Old value for baffle OUTSIDE temperature [C]
         Real64 HrPlen;      // Modeled radiation coef for OSCM [W/m2-C]
         Real64 HcPlen;      // Modeled Convection coef for OSCM [W/m2-C]
         Real64 MdotVent;    // air mass flow exchanging with ambient when passive.
@@ -943,7 +945,8 @@ namespace DataHeatBalance {
             : OSCMPtr(0), Porosity(0.0), LWEmitt(0.0), SolAbsorp(0.0), BaffleRoughness(Material::SurfaceRoughness::VeryRough), PlenGapThick(0.0),
               NumSurfs(0), HdeltaNPL(0.0), AreaRatio(0.0), Cv(0.0), Cd(0.0), ActualArea(0.0), ProjArea(0.0), Centroid(0.0, 0.0, 0.0), TAirCav(0.0),
               Tbaffle(0.0), TairLast(20.0), TbaffleLast(20.0), HrPlen(0.0), HcPlen(0.0), MdotVent(0.0), Tilt(0.0), Azimuth(0.0), QdotSource(0.0),
-              Isc(0.0), PassiveACH(0.0), PassiveMdotVent(0.0), PassiveMdotWind(0.0), PassiveMdotTherm(0.0)
+              Isc(0.0), PassiveACH(0.0), PassiveMdotVent(0.0), PassiveMdotWind(0.0), PassiveMdotTherm(0.0),
+              TbaffleOut(0.0), TbaffleOutLast(20.0)  // New
         {
         }
     };
