@@ -9753,8 +9753,10 @@ void CalcOutsideSurfTemp(EnergyPlusData &state,
             // Outside Heat Balance case: Other Side Conditions Model
         } else { //( Surface(SurfNum)%OSCMPtr > 0 ) THEN
                 // ``` Override the underlying solar irradiation
+                Real64 SurfTotSolAbs = 0.0;
                 if (state.dataSurface->OSCM(surface.OSCMPtr).EMSOverrideOnSurfTotSolAbs) {
                     state.dataHeatBalSurf->SurfOpaqQRadSWOutAbs(SurfNum) = state.dataSurface->OSCM(surface.OSCMPtr).SurfTotSolAbs;
+                    SurfTotSolAbs = state.dataSurface->OSCM(surface.OSCMPtr).SurfTotSolAbs;
                 }
                 // ```
             // ```
@@ -9790,13 +9792,13 @@ void CalcOutsideSurfTemp(EnergyPlusData &state,
                         //patterned after "No movable insulation, slow conduction," but with new radiation terms and no sun,
                         if (construct.SourceSinkPresent) {
                             TH11 = (-state.dataHeatBalSurf->SurfCTFConstOutPart(SurfNum) + state.dataHeatBalSurf->SurfHConvExt(SurfNum) * TempExt +
-                            state.dataHeatBalSurf->SurfQAdditionalHeatSourceOutside(SurfNum) + HRad * RadTemp +
+                            state.dataHeatBalSurf->SurfQAdditionalHeatSourceOutside(SurfNum) + HRad * RadTemp + SurfTotSolAbs + // SurfTotSolAbs was added
                             construct.CTFCross[0] * state.dataHeatBalSurf->SurfTempIn(SurfNum) +
                             construct.CTFSourceOut[0] * state.dataHeatBalSurf->SurfQsrcHist(SurfNum, 1)) /
                                 (construct.CTFOutside[0] + state.dataHeatBalSurf->SurfHConvExt(SurfNum) + HRad);
                         } else {
                             TH11 = (-state.dataHeatBalSurf->SurfCTFConstOutPart(SurfNum) + state.dataHeatBalSurf->SurfHConvExt(SurfNum) * TempExt +
-                            state.dataHeatBalSurf->SurfQAdditionalHeatSourceOutside(SurfNum) + HRad * RadTemp +
+                            state.dataHeatBalSurf->SurfQAdditionalHeatSourceOutside(SurfNum) + HRad * RadTemp + SurfTotSolAbs + // SurfTotSolAbs was added
                             construct.CTFCross[0] * state.dataHeatBalSurf->SurfTempIn(SurfNum)) /
                             (construct.CTFOutside[0] + state.dataHeatBalSurf->SurfHConvExt(SurfNum) + HRad);
                         }
