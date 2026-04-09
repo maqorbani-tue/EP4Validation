@@ -1196,6 +1196,10 @@ namespace DataSurfaces {
         // ``` Cavity Thermal Tranmittance actuator
         bool EMSOverrideOnCladThermTrans{false};
         Real64 CladdingThermalTransmittance;
+        // ``` Rolling Textile Translucency actuator
+        bool EMSOverrideOnRollTextTrans{false};
+        Real64 RollingTextileTranslucency;
+        // ``` End of the change
         // bool ActuatorIsInitialized{false}; // Flag to register actuator only once  // This was moved to SurfaceGeometry.cc
         // ``` End of the change
 

@@ -3004,11 +3004,43 @@ void InitSolarHeatGains(EnergyPlusData &state)
                     Real64 SurfIncSolarMultiplier = state.dataSurface->Surface(SurfNum).IncSolMultiplier;
                     currBeamSolar(SurfNum) = state.dataEnvrn->BeamSolarRad * SurfIncSolarMultiplier;
                     if (Surface(SurfNum).ExtSolar) {
-                        Real64 AbsExt =
-                            state.dataHeatBalSurf->SurfAbsSolarExt(SurfNum); // Absorptivity of outer most layer (or movable insulation if present)
+                        // ``` Sky and Ground diffuse irrad modification:
+                        // TODO: I have to change the fractions of the sky and ground solar here by the exposure
+
+                        // Define local variables for incident solar
+                        Real64 SkySolarInc = state.dataSurface->SurfSkySolarInc(SurfNum);
+                        Real64 GndSolarInc = state.dataSurface->SurfGndSolarInc(SurfNum);
+
+                        // Check for OSCM overrides and scale diffuse radiation
+                        int OPtr = Surface(SurfNum).OSCMPtr;
+                        if (OPtr > 0) {
+                            // 1. Sky Diffuse Scaling
+                            if (state.dataSurface->OSCM(OPtr).EMSOverrideOnSurfSkyExpos) {
+                                Real64 SurfSkyExpos = state.dataSurface->OSCM(OPtr).SurfSkyExpos;
+                                Real64 vfSky = Surface(SurfNum).ViewFactorSky;
+                                if (vfSky > 0.0) {
+                                    SkySolarInc *= (SurfSkyExpos / vfSky);
+                                } else {
+                                    SkySolarInc = 0.0; // Safety check
+                                }
+                            }
+
+                        // 2. Ground Diffuse Scaling
+                        if (state.dataSurface->OSCM(OPtr).EMSOverrideOnSurfGroundExpos) {
+                                Real64 SurfGroundExpos = state.dataSurface->OSCM(OPtr).SurfGroundExpos;
+                                Real64 vfGround = Surface(SurfNum).ViewFactorGround;
+                                if (vfGround > 0.0) {
+                                    GndSolarInc *= (SurfGroundExpos / vfGround);
+                                } else {
+                                    GndSolarInc = 0.0; // Safety check
+                                }
+                            }
+                        }
+
+                        Real64 AbsExt = state.dataHeatBalSurf->SurfAbsSolarExt(SurfNum); // Absorptivity of outer most layer (or movable insulation)
                         state.dataHeatBalSurf->SurfOpaqQRadSWOutAbs(SurfNum) =
                             state.dataSurface->SurfOpaqAO(SurfNum) * currBeamSolar(SurfNum) +
-                            AbsExt * (state.dataSurface->SurfSkySolarInc(SurfNum) + state.dataSurface->SurfGndSolarInc(SurfNum));
+                            AbsExt * (SkySolarInc + GndSolarInc);
                     }
                     if (ConstrNum > 0) {
                         int SurfSolIncPtr = SolarShading::SurfaceScheduledSolarInc(state, SurfNum, ConstrNum);
@@ -9758,114 +9790,135 @@ void CalcOutsideSurfTemp(EnergyPlusData &state,
                     state.dataHeatBalSurf->SurfOpaqQRadSWOutAbs(SurfNum) = state.dataSurface->OSCM(surface.OSCMPtr).SurfTotSolAbs;
                     SurfTotSolAbs = state.dataSurface->OSCM(surface.OSCMPtr).SurfTotSolAbs;
                 }
+                else if (state.dataSurface->OSCM(surface.OSCMPtr).EMSOverrideOnRollTextTrans) {
+                    SurfTotSolAbs = state.dataHeatBalSurf->SurfOpaqQRadSWOutAbs(SurfNum) *
+                    state.dataSurface->OSCM(surface.OSCMPtr).RollingTextileTranslucency;
+                }  // The SurfTotSolAbs here has SurfSolAbsorptance applied to it since SurfOpaqQRadSWOutAbs(SurfNum) * transFraction
                 // ```
             // ```
-            // For the validation part, here is the new EMS actuator to set the surface temperature
-            if (!state.dataSurface->OSCM(surface.OSCMPtr).EMSOverrideOnSurfOutTemp) {
-                // ```
-                // local copies of variables for clarity in radiation terms
-                // TODO: - int OSCMPtr; // "Pointer" to OSCM data structure (other side conditions from a model)
-                if (KC == 1) {
+            // local copies of variables for clarity in radiation terms
+            // TODO: - int OSCMPtr; // "Pointer" to OSCM data structure (other side conditions from a model)
+            if (KC == 1) {
+                Real64 RadTemp =
+                    state.dataSurface->OSCM(surface.OSCMPtr).TRad; // local value for Effective radiation temperature for OtherSideConditions model
+                Real64 HRad = state.dataSurface->OSCM(surface.OSCMPtr).HRad; // local value for effective (linearized) radiation coefficient
+
+                // If louvre is partially open, although the Kinetic Cladding is assumed to be present (KC = 1) --> only louver-based claddings
+                if (state.dataSurface->OSCM(surface.OSCMPtr).EMSOverrideOnSurfSkyExpos && 
+                    state.dataSurface->OSCM(surface.OSCMPtr).EMSOverrideOnSurfGroundExpos &&
+                    (state.dataSurface->OSCM(surface.OSCMPtr).SurfSkyExpos + state.dataSurface->OSCM(surface.OSCMPtr).SurfGroundExpos > 0)) {
+                    Real64 SurfSkyExpos = state.dataSurface->OSCM(surface.OSCMPtr).SurfSkyExpos;
+                    Real64 SurfGroundExpos = state.dataSurface->OSCM(surface.OSCMPtr).SurfGroundExpos;
+                    Real64 SurfcladExpos = 1 - (SurfSkyExpos + SurfGroundExpos);
+
+                    Real64 vfSky = surface.ViewFactorSky;
+                    Real64 vfGround = surface.ViewFactorGround;
+
+                    HRad = HRad * SurfcladExpos;
+                    Real64 HSky = 0.0;
+                    if (vfSky > 0) {
+                        HSky = state.dataHeatBalSurf->SurfHSkyExt(SurfNum) * (SurfSkyExpos / vfSky);
+                    }
+                    Real64 HGrnd = 0.0;
+                    if (vfGround > 0) {
+                        HGrnd = state.dataHeatBalSurf->SurfHGrdExt(SurfNum) * (SurfGroundExpos / vfGround);
+                    }
+                    
+                    // Now the temperature calculation
+                    // Here, SurfOpaqQRadSWOutAbs, Sky, Grnd are added
+                    TH11 = (-state.dataHeatBalSurf->SurfCTFConstOutPart(SurfNum) + state.dataHeatBalSurf->SurfOpaqQRadSWOutAbs(SurfNum) +
+                    state.dataHeatBalSurf->SurfHConvExt(SurfNum) * TempExt +
+                    state.dataHeatBalSurf->SurfQAdditionalHeatSourceOutside(SurfNum) + HSky * TSky + HGrnd * TGround +
+                    HRad * RadTemp + construct.CTFCross[0] * state.dataHeatBalSurf->SurfTempIn(SurfNum)) /
+                    (construct.CTFOutside[0] + state.dataHeatBalSurf->SurfHConvExt(SurfNum) + HRad + HSky + HGrnd);
+                } else { // Louvres are completely shut (SurfcladExpos = 1 && KC = 1)
+                    //patterned after "No movable insulation, slow conduction," but with new radiation terms and no sun,
+                    if (construct.SourceSinkPresent) {
+                        TH11 = (-state.dataHeatBalSurf->SurfCTFConstOutPart(SurfNum) + state.dataHeatBalSurf->SurfHConvExt(SurfNum) * TempExt +
+                        state.dataHeatBalSurf->SurfQAdditionalHeatSourceOutside(SurfNum) + HRad * RadTemp + SurfTotSolAbs + // SurfTotSolAbs was added
+                        construct.CTFCross[0] * state.dataHeatBalSurf->SurfTempIn(SurfNum) +
+                        construct.CTFSourceOut[0] * state.dataHeatBalSurf->SurfQsrcHist(SurfNum, 1)) /
+                            (construct.CTFOutside[0] + state.dataHeatBalSurf->SurfHConvExt(SurfNum) + HRad);
+                    } else {
+                        TH11 = (-state.dataHeatBalSurf->SurfCTFConstOutPart(SurfNum) + state.dataHeatBalSurf->SurfHConvExt(SurfNum) * TempExt +
+                        state.dataHeatBalSurf->SurfQAdditionalHeatSourceOutside(SurfNum) + HRad * RadTemp + SurfTotSolAbs + // SurfTotSolAbs was added
+                        construct.CTFCross[0] * state.dataHeatBalSurf->SurfTempIn(SurfNum)) /
+                        (construct.CTFOutside[0] + state.dataHeatBalSurf->SurfHConvExt(SurfNum) + HRad);
+                    }
+                }
+            } else { // KC == 0
+                if (state.dataSurface->OSCM(surface.OSCMPtr).EMSOverrideOnSurfSkyExpos && 
+                    state.dataSurface->OSCM(surface.OSCMPtr).EMSOverrideOnSurfGroundExpos &&
+                    (state.dataSurface->OSCM(surface.OSCMPtr).SurfSkyExpos + state.dataSurface->OSCM(surface.OSCMPtr).SurfGroundExpos < 1)) {
+                    Real64 SurfSkyExpos = state.dataSurface->OSCM(surface.OSCMPtr).SurfSkyExpos;
+                    Real64 SurfGroundExpos = state.dataSurface->OSCM(surface.OSCMPtr).SurfGroundExpos;
+                    Real64 SurfcladExpos = 1 - (SurfSkyExpos + SurfGroundExpos);
+
+                    // RadTemp and HRad should be added here altough TRad has been set to be equal to the outdoor dry bulb temp
                     Real64 RadTemp =
                         state.dataSurface->OSCM(surface.OSCMPtr).TRad; // local value for Effective radiation temperature for OtherSideConditions model
                     Real64 HRad = state.dataSurface->OSCM(surface.OSCMPtr).HRad; // local value for effective (linearized) radiation coefficient
 
-                    if (state.dataSurface->OSCM(surface.OSCMPtr).EMSOverrideOnSurfSkyExpos && 
-                        state.dataSurface->OSCM(surface.OSCMPtr).EMSOverrideOnSurfGroundExpos &&
-                        (state.dataSurface->OSCM(surface.OSCMPtr).SurfSkyExpos + state.dataSurface->OSCM(surface.OSCMPtr).SurfGroundExpos > 0)) {
-                        Real64 SurfSkyExpos = state.dataSurface->OSCM(surface.OSCMPtr).SurfSkyExpos;
-                        Real64 SurfGroundExpos = state.dataSurface->OSCM(surface.OSCMPtr).SurfGroundExpos;
-                        Real64 SurfcladExpos = 1 - (SurfSkyExpos + SurfGroundExpos);
+                    Real64 vfSky = surface.ViewFactorSky;
+                    Real64 vfGround = surface.ViewFactorGround;
 
-                        HRad = HRad * SurfcladExpos;
-                        Real64 HGrnd = state.dataHeatBalSurf->SurfHGrdExt(SurfNum) * SurfGroundExpos;
-                        Real64 HSky = state.dataHeatBalSurf->SurfHSkyExt(SurfNum) * SurfSkyExpos;
-                        
-                        // Now the temperature calculation
-                        // Here, SurfOpaqQRadSWOutAbs, Sky, Grnd are added
-                        TH11 = (-state.dataHeatBalSurf->SurfCTFConstOutPart(SurfNum) + state.dataHeatBalSurf->SurfOpaqQRadSWOutAbs(SurfNum) +
-                        state.dataHeatBalSurf->SurfHConvExt(SurfNum) * TempExt +
-                        state.dataHeatBalSurf->SurfQAdditionalHeatSourceOutside(SurfNum) + HSky * TSky + HGrnd * TGround +
-                        HRad * RadTemp + construct.CTFCross[0] * state.dataHeatBalSurf->SurfTempIn(SurfNum)) /
-                        (construct.CTFOutside[0] + state.dataHeatBalSurf->SurfHConvExt(SurfNum) + HRad + HSky + HGrnd);
-                    } else { // Louvres are completely shut (SurfcladExpos = 1 && KC = 1)
-                        //patterned after "No movable insulation, slow conduction," but with new radiation terms and no sun,
-                        if (construct.SourceSinkPresent) {
-                            TH11 = (-state.dataHeatBalSurf->SurfCTFConstOutPart(SurfNum) + state.dataHeatBalSurf->SurfHConvExt(SurfNum) * TempExt +
-                            state.dataHeatBalSurf->SurfQAdditionalHeatSourceOutside(SurfNum) + HRad * RadTemp + SurfTotSolAbs + // SurfTotSolAbs was added
-                            construct.CTFCross[0] * state.dataHeatBalSurf->SurfTempIn(SurfNum) +
-                            construct.CTFSourceOut[0] * state.dataHeatBalSurf->SurfQsrcHist(SurfNum, 1)) /
-                                (construct.CTFOutside[0] + state.dataHeatBalSurf->SurfHConvExt(SurfNum) + HRad);
-                        } else {
-                            TH11 = (-state.dataHeatBalSurf->SurfCTFConstOutPart(SurfNum) + state.dataHeatBalSurf->SurfHConvExt(SurfNum) * TempExt +
-                            state.dataHeatBalSurf->SurfQAdditionalHeatSourceOutside(SurfNum) + HRad * RadTemp + SurfTotSolAbs + // SurfTotSolAbs was added
-                            construct.CTFCross[0] * state.dataHeatBalSurf->SurfTempIn(SurfNum)) /
-                            (construct.CTFOutside[0] + state.dataHeatBalSurf->SurfHConvExt(SurfNum) + HRad);
-                        }
+                    HRad = HRad * SurfcladExpos;  // It is going to be (SurfcladExpos / 1)
+                    Real64 HSky = 0.0;
+                    if (vfSky > 0) {
+                        HSky = state.dataHeatBalSurf->SurfHSkyExt(SurfNum) * (SurfSkyExpos / vfSky);
                     }
-                } else { // KC == 0
-                    if (state.dataSurface->OSCM(surface.OSCMPtr).EMSOverrideOnSurfSkyExpos && 
-                        state.dataSurface->OSCM(surface.OSCMPtr).EMSOverrideOnSurfGroundExpos &&
-                        (state.dataSurface->OSCM(surface.OSCMPtr).SurfSkyExpos + state.dataSurface->OSCM(surface.OSCMPtr).SurfGroundExpos < 1)) {
-                        Real64 SurfSkyExpos = state.dataSurface->OSCM(surface.OSCMPtr).SurfSkyExpos;
-                        Real64 SurfGroundExpos = state.dataSurface->OSCM(surface.OSCMPtr).SurfGroundExpos;
-                        Real64 SurfcladExpos = 1 - (SurfSkyExpos + SurfGroundExpos);
+                    Real64 HGrnd = 0.0;
+                    if (vfGround > 0) {
+                        HGrnd = state.dataHeatBalSurf->SurfHGrdExt(SurfNum) * (SurfGroundExpos / vfGround);
+                    }
 
-                        // RadTemp and HRad should be added here altough TRad has been set to be equal to the outdoor dry bulb temp
-                        Real64 RadTemp =
-                            state.dataSurface->OSCM(surface.OSCMPtr).TRad; // local value for Effective radiation temperature for OtherSideConditions model
-                        Real64 HRad = state.dataSurface->OSCM(surface.OSCMPtr).HRad; // local value for effective (linearized) radiation coefficient
-
-                        HRad = HRad * SurfcladExpos;
-                        Real64 HGrnd = state.dataHeatBalSurf->SurfHGrdExt(SurfNum) * SurfGroundExpos;
-                        Real64 HSky = state.dataHeatBalSurf->SurfHSkyExt(SurfNum) * SurfSkyExpos;
-
-                        // implement the new TH11 here (KC = 0, but there is also some view factor with the cladding)
-                        if (construct.SourceSinkPresent) {
-                            TH11 = (-state.dataHeatBalSurf->SurfCTFConstOutPart(SurfNum) + state.dataHeatBalSurf->SurfOpaqQRadSWOutAbs(SurfNum) +
-                                    state.dataHeatBalSurf->SurfHSrdSurfExt(SurfNum) * TSrdSurfs + HRad * RadTemp +  // HRad * RadTemp was added here
-                                    (state.dataHeatBalSurf->SurfHConvExt(SurfNum) + state.dataHeatBalSurf->SurfHAirExt(SurfNum)) * TempExt +
-                                    state.dataHeatBalSurf->SurfQAdditionalHeatSourceOutside(SurfNum) + HSky * TSky +
-                                    HGrnd * TGround + construct.CTFCross[0] * state.dataHeatBalSurf->SurfTempIn(SurfNum) +
-                                    construct.CTFSourceOut[0] * state.dataHeatBalSurf->SurfQsrcHist(SurfNum, 1)) /
-                                (construct.CTFOutside[0] + state.dataHeatBalSurf->SurfHConvExt(SurfNum) + state.dataHeatBalSurf->SurfHAirExt(SurfNum) +
-                                    HSky + HGrnd + HRad +  // HRad was added here. Also, HSky and HGrnd were replaced
-                                    state.dataHeatBalSurf->SurfHSrdSurfExt(SurfNum)); // ODB used to approx ground surface temp
-                        } else {
-                            TH11 = (-state.dataHeatBalSurf->SurfCTFConstOutPart(SurfNum) + state.dataHeatBalSurf->SurfOpaqQRadSWOutAbs(SurfNum) +
-                                    state.dataHeatBalSurf->SurfHSrdSurfExt(SurfNum) * TSrdSurfs + HRad * RadTemp +  // HRad * RadTemp was added here
-                                    (state.dataHeatBalSurf->SurfHConvExt(SurfNum) + state.dataHeatBalSurf->SurfHAirExt(SurfNum)) * TempExt +
-                                    state.dataHeatBalSurf->SurfQAdditionalHeatSourceOutside(SurfNum) + HSky * TSky +
-                                    HGrnd * TGround + construct.CTFCross[0] * state.dataHeatBalSurf->SurfTempIn(SurfNum)) /
-                                (construct.CTFOutside[0] + state.dataHeatBalSurf->SurfHConvExt(SurfNum) + state.dataHeatBalSurf->SurfHAirExt(SurfNum) +
-                                    HSky + HGrnd + HRad +  // HRad was added here. Also, HSky and HGrnd were replaced
-                                    state.dataHeatBalSurf->SurfHSrdSurfExt(SurfNum)); // ODB used to approx ground surface temp
-                        }
-                    } else {  // Sky and Ground exposures are 1, meaning that the there is no cladding in front of the surface at all
-                        if (construct.SourceSinkPresent) {
-                            TH11 = (-state.dataHeatBalSurf->SurfCTFConstOutPart(SurfNum) + state.dataHeatBalSurf->SurfOpaqQRadSWOutAbs(SurfNum) +
-                                    state.dataHeatBalSurf->SurfHSrdSurfExt(SurfNum) * TSrdSurfs +
-                                    (state.dataHeatBalSurf->SurfHConvExt(SurfNum) + state.dataHeatBalSurf->SurfHAirExt(SurfNum)) * TempExt +
-                                    state.dataHeatBalSurf->SurfQAdditionalHeatSourceOutside(SurfNum) + state.dataHeatBalSurf->SurfHSkyExt(SurfNum) * TSky +
-                                    state.dataHeatBalSurf->SurfHGrdExt(SurfNum) * TGround + construct.CTFCross[0] * state.dataHeatBalSurf->SurfTempIn(SurfNum) +
-                                    construct.CTFSourceOut[0] * state.dataHeatBalSurf->SurfQsrcHist(SurfNum, 1)) /
-                                (construct.CTFOutside[0] + state.dataHeatBalSurf->SurfHConvExt(SurfNum) + state.dataHeatBalSurf->SurfHAirExt(SurfNum) +
-                                    state.dataHeatBalSurf->SurfHSkyExt(SurfNum) + state.dataHeatBalSurf->SurfHGrdExt(SurfNum) +
-                                    state.dataHeatBalSurf->SurfHSrdSurfExt(SurfNum)); // ODB used to approx ground surface temp
-                        } else {
-                            TH11 = (-state.dataHeatBalSurf->SurfCTFConstOutPart(SurfNum) + state.dataHeatBalSurf->SurfOpaqQRadSWOutAbs(SurfNum) +
-                                    state.dataHeatBalSurf->SurfHSrdSurfExt(SurfNum) * TSrdSurfs +
-                                    (state.dataHeatBalSurf->SurfHConvExt(SurfNum) + state.dataHeatBalSurf->SurfHAirExt(SurfNum)) * TempExt +
-                                    state.dataHeatBalSurf->SurfQAdditionalHeatSourceOutside(SurfNum) + state.dataHeatBalSurf->SurfHSkyExt(SurfNum) * TSky +
-                                    state.dataHeatBalSurf->SurfHGrdExt(SurfNum) * TGround + construct.CTFCross[0] * state.dataHeatBalSurf->SurfTempIn(SurfNum)) /
-                                (construct.CTFOutside[0] + state.dataHeatBalSurf->SurfHConvExt(SurfNum) + state.dataHeatBalSurf->SurfHAirExt(SurfNum) +
-                                    state.dataHeatBalSurf->SurfHSkyExt(SurfNum) + state.dataHeatBalSurf->SurfHGrdExt(SurfNum) +
-                                    state.dataHeatBalSurf->SurfHSrdSurfExt(SurfNum)); // ODB used to approx ground surface temp
-                        }
+                    // implement the new TH11 here (KC = 0, but there is also some view factor with the cladding)
+                    if (construct.SourceSinkPresent) {
+                        TH11 = (-state.dataHeatBalSurf->SurfCTFConstOutPart(SurfNum) + state.dataHeatBalSurf->SurfOpaqQRadSWOutAbs(SurfNum) +
+                                state.dataHeatBalSurf->SurfHSrdSurfExt(SurfNum) * TSrdSurfs + HRad * RadTemp +  // HRad * RadTemp was added here
+                                (state.dataHeatBalSurf->SurfHConvExt(SurfNum) + state.dataHeatBalSurf->SurfHAirExt(SurfNum)) * TempExt +
+                                state.dataHeatBalSurf->SurfQAdditionalHeatSourceOutside(SurfNum) + HSky * TSky +
+                                HGrnd * TGround + construct.CTFCross[0] * state.dataHeatBalSurf->SurfTempIn(SurfNum) +
+                                construct.CTFSourceOut[0] * state.dataHeatBalSurf->SurfQsrcHist(SurfNum, 1)) /
+                            (construct.CTFOutside[0] + state.dataHeatBalSurf->SurfHConvExt(SurfNum) + state.dataHeatBalSurf->SurfHAirExt(SurfNum) +
+                                HSky + HGrnd + HRad +  // HRad was added here. Also, HSky and HGrnd were replaced
+                                state.dataHeatBalSurf->SurfHSrdSurfExt(SurfNum)); // ODB used to approx ground surface temp
+                    } else {
+                        TH11 = (-state.dataHeatBalSurf->SurfCTFConstOutPart(SurfNum) + state.dataHeatBalSurf->SurfOpaqQRadSWOutAbs(SurfNum) +
+                                state.dataHeatBalSurf->SurfHSrdSurfExt(SurfNum) * TSrdSurfs + HRad * RadTemp +  // HRad * RadTemp was added here
+                                (state.dataHeatBalSurf->SurfHConvExt(SurfNum) + state.dataHeatBalSurf->SurfHAirExt(SurfNum)) * TempExt +
+                                state.dataHeatBalSurf->SurfQAdditionalHeatSourceOutside(SurfNum) + HSky * TSky +
+                                HGrnd * TGround + construct.CTFCross[0] * state.dataHeatBalSurf->SurfTempIn(SurfNum)) /
+                            (construct.CTFOutside[0] + state.dataHeatBalSurf->SurfHConvExt(SurfNum) + state.dataHeatBalSurf->SurfHAirExt(SurfNum) +
+                                HSky + HGrnd + HRad +  // HRad was added here. Also, HSky and HGrnd were replaced
+                                state.dataHeatBalSurf->SurfHSrdSurfExt(SurfNum)); // ODB used to approx ground surface temp
+                    }
+                } else {  // Sky and Ground exposures are 1, meaning that the there is no cladding in front of the surface at all
+                    if (construct.SourceSinkPresent) {
+                        TH11 = (-state.dataHeatBalSurf->SurfCTFConstOutPart(SurfNum) + state.dataHeatBalSurf->SurfOpaqQRadSWOutAbs(SurfNum) +
+                                state.dataHeatBalSurf->SurfHSrdSurfExt(SurfNum) * TSrdSurfs +
+                                (state.dataHeatBalSurf->SurfHConvExt(SurfNum) + state.dataHeatBalSurf->SurfHAirExt(SurfNum)) * TempExt +
+                                state.dataHeatBalSurf->SurfQAdditionalHeatSourceOutside(SurfNum) + state.dataHeatBalSurf->SurfHSkyExt(SurfNum) * TSky +
+                                state.dataHeatBalSurf->SurfHGrdExt(SurfNum) * TGround + construct.CTFCross[0] * state.dataHeatBalSurf->SurfTempIn(SurfNum) +
+                                construct.CTFSourceOut[0] * state.dataHeatBalSurf->SurfQsrcHist(SurfNum, 1)) /
+                            (construct.CTFOutside[0] + state.dataHeatBalSurf->SurfHConvExt(SurfNum) + state.dataHeatBalSurf->SurfHAirExt(SurfNum) +
+                                state.dataHeatBalSurf->SurfHSkyExt(SurfNum) + state.dataHeatBalSurf->SurfHGrdExt(SurfNum) +
+                                state.dataHeatBalSurf->SurfHSrdSurfExt(SurfNum)); // ODB used to approx ground surface temp
+                    } else {
+                        TH11 = (-state.dataHeatBalSurf->SurfCTFConstOutPart(SurfNum) + state.dataHeatBalSurf->SurfOpaqQRadSWOutAbs(SurfNum) +
+                                state.dataHeatBalSurf->SurfHSrdSurfExt(SurfNum) * TSrdSurfs +
+                                (state.dataHeatBalSurf->SurfHConvExt(SurfNum) + state.dataHeatBalSurf->SurfHAirExt(SurfNum)) * TempExt +
+                                state.dataHeatBalSurf->SurfQAdditionalHeatSourceOutside(SurfNum) + state.dataHeatBalSurf->SurfHSkyExt(SurfNum) * TSky +
+                                state.dataHeatBalSurf->SurfHGrdExt(SurfNum) * TGround + construct.CTFCross[0] * state.dataHeatBalSurf->SurfTempIn(SurfNum)) /
+                            (construct.CTFOutside[0] + state.dataHeatBalSurf->SurfHConvExt(SurfNum) + state.dataHeatBalSurf->SurfHAirExt(SurfNum) +
+                                state.dataHeatBalSurf->SurfHSkyExt(SurfNum) + state.dataHeatBalSurf->SurfHGrdExt(SurfNum) +
+                                state.dataHeatBalSurf->SurfHSrdSurfExt(SurfNum)); // ODB used to approx ground surface temp
                     }
                 }
-                // ```
-            } else {
+            }
+            // ```
+            // For the validation part, here is the new EMS actuator to set the surface temperature
+            if (state.dataSurface->OSCM(surface.OSCMPtr).EMSOverrideOnSurfOutTemp) {
                 TH11 = state.dataSurface->OSCM(surface.OSCMPtr).SurfOutTemp;
             }
         }
@@ -10133,6 +10186,8 @@ void CalcExteriorVentedCavity(EnergyPlusData &state, int const SurfNum) // index
                                                               TmpTsBaffleIn, // Pass TmpTsBaffleIn (as the old TmpTscoll)
                                                               TmpTaPlen,
                                                               KC,
+                                                              state.dataSurface->OSCM(thisOSCM).EMSOverrideOnRollTextTrans,
+                                                              state.dataSurface->OSCM(thisOSCM).RollingTextileTranslucency,
                                                               state.dataSurface->OSCM(thisOSCM).EMSOverrideOnCladTotSolAbs,
                                                               state.dataSurface->OSCM(thisOSCM).CladTotSolAbs,
                                                               state.dataSurface->OSCM(thisOSCM).EMSOverrideOnBaffleTemp,

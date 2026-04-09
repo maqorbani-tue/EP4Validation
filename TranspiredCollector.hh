@@ -218,6 +218,8 @@ namespace TranspiredCollector {
                                       Real64 &TsBaffle,                           // Temperature of baffle (both sides) use lagged value on input [C]
                                       Real64 &TaGap, // Temperature of air gap (assumed mixed) use lagged value on input [C]
                                       int const KC,
+                                      bool const EMSOverrideOnRollTextTrans,
+                                      Real64 const RollingTextileTranslucency,
                                       bool const EMSOverrideOnCladTotSolAbs,
                                       Real64 const CladTotSolAbs,
                                       bool const EMSOverrideOnBaffleTemp,

@@ -407,8 +407,8 @@ namespace TranspiredCollector {
 
                     } // Each OA System in a Multisystem
                       // DEALLOCATE(AlphasSplit)
-                }     // each Multisystem present
-            }         // any UTSC Multisystem present
+                } // each Multisystem present
+            } // any UTSC Multisystem present
 
             state.dataTranspiredCollector->UTSC(Item).OSCMName = Alphas(2);
             Found = UtilityRoutines::FindItemInList(state.dataTranspiredCollector->UTSC(Item).OSCMName, state.dataSurface->OSCM);
@@ -1935,6 +1935,8 @@ namespace TranspiredCollector {
                                       Real64 &TsBaffle,                           // Temperature of baffle (both sides) use lagged value on input [C]
                                       Real64 &TaGap, // Temperature of air gap (assumed mixed) use lagged value on input [C]
                                       int const KC,
+                                      bool const EMSOverrideOnRollTextTrans,
+                                      Real64 const RollingTextileTranslucency,
                                       bool const EMSOverrideOnCladTotSolAbs,
                                       Real64 const CladTotSolAbs,
                                       bool const EMSOverrideOnBaffleTemp,
@@ -2115,6 +2117,10 @@ namespace TranspiredCollector {
         // Incoming combined solar radiation, area-weighted average
         Real64 Isc =
             sum_product_sub(state.dataHeatBal->SurfQRadSWOutIncident, state.dataSurface->Surface, &DataSurfaces::SurfaceData::Area, SurfPtrARR) / A;
+        // Adjusting Isc for the Rolling Textile translucency
+        if (EMSOverrideOnRollTextTrans) {
+            Isc = Isc * (1 - RollingTextileTranslucency);
+        }
         // average of surface temps , for Beta in Grashoff no.
         Real64 TmeanK = 0.5 * (TmpTsBaf + Tso) + Constant::KelvinConv;
         // Grasshof number for natural convection calc
@@ -2144,7 +2150,7 @@ namespace TranspiredCollector {
             }
 
             Real64 VdotVent = VdotWind + VdotThermal; // total volume flow rate of nat vent
-            MdotVent = VdotVent * RhoAir;      // total mass flow rate of nat vent
+            MdotVent = VdotVent * RhoAir;             // total mass flow rate of nat vent
         } else {
             // Override with EMS value
             // Convert velocity [m/s] to mass flow rate [kg/s]
@@ -2162,14 +2168,14 @@ namespace TranspiredCollector {
             // ```
             if (!EMSOverrideOnBaffleTemp) {
                 if (EMSOverrideOnCladTotSolAbs) {
-                    TsBaffle = (CladTotSolAbs + HExt * Tamb + HrAtm * Tamb +
-                                 HrSky * state.dataEnvrn->SkyTemp + HrGround * Tamb + HrPlen * Tso + HcPlen * TaGap + QdotSource) /
-                                (HExt + HrAtm + HrSky + HrGround + HrPlen + HcPlen);
+                    TsBaffle = (CladTotSolAbs + HExt * Tamb + HrAtm * Tamb + HrSky * state.dataEnvrn->SkyTemp + HrGround * Tamb + HrPlen * Tso +
+                                HcPlen * TaGap + QdotSource) /
+                               (HExt + HrAtm + HrSky + HrGround + HrPlen + HcPlen);
                 } else {
-                TsBaffle = (Isc * SolAbs + HExt * Tamb + HrAtm * Tamb + HrSky * state.dataEnvrn->SkyTemp + HrGround * Tamb + HrPlen * Tso +
-                            HcPlen * TaGap + QdotSource) /
-                        (HExt + HrAtm + HrSky + HrGround + HrPlen + HcPlen);
-                    }
+                    TsBaffle = (Isc * SolAbs + HExt * Tamb + HrAtm * Tamb + HrSky * state.dataEnvrn->SkyTemp + HrGround * Tamb + HrPlen * Tso +
+                                HcPlen * TaGap + QdotSource) /
+                               (HExt + HrAtm + HrSky + HrGround + HrPlen + HcPlen);
+                }
             } else {
                 TsBaffle = BaffleTemp; // use EMS override value
             } // ```
@@ -2214,11 +2220,11 @@ namespace TranspiredCollector {
                                       Real64 const GapThick,         // Thickness of air space between baffle and underlying heat transfer surface
                                       Material::SurfaceRoughness const Roughness, // Roughness index (1-6), see DataHeatBalance parameters
                                       Real64 const QdotSource,                    // Source/sink term, e.g. electricity exported from solar cell [W]
-                                      Real64 &TsBaffleOut,                          // NEW: Temperature of baffle OUTSIDE face [C]
-                                      Real64 &TsBaffleIn,                           // NEW: Temperature of baffle INSIDE face [C]
-                                      Real64 &TaGap, // Temperature of air gap (assumed mixed) use lagged value on input [C]
+                                      Real64 &TsBaffleOut,                        // NEW: Temperature of baffle OUTSIDE face [C]
+                                      Real64 &TsBaffleIn,                         // NEW: Temperature of baffle INSIDE face [C]
+                                      Real64 &TaGap,                // Temperature of air gap (assumed mixed) use lagged value on input [C]
                                       Real64 const BaffleCondCoeff, // NEW: Cladding k/L value [W/m2K]
-                                      Real64 const SOExposure,  // Exposure fraction of the baffle to the underlying surface
+                                      Real64 const SOExposure,      // Exposure fraction of the baffle to the underlying surface
                                       int const KC,
                                       bool const EMSOverrideOnCladTotSolAbs,
                                       Real64 const CladTotSolAbs,
@@ -2305,7 +2311,7 @@ namespace TranspiredCollector {
         } else { // when raining we use wetbulb not drybulb
             Tamb = LocalWetBulbTemp;
         }
-        Real64 A = sum_area;        // projected area of baffle from sum of underlying surfaces
+        Real64 A = sum_area;              // projected area of baffle from sum of underlying surfaces
         Real64 TmpTsBafOut = TsBaffleOut; // Use OUTSIDE temp for external coefficients
         Real64 TmpTsBafIn = TsBaffleIn;   // Use INSIDE temp for cavity coefficients
 
@@ -2407,7 +2413,7 @@ namespace TranspiredCollector {
         Real64 Gr = g * pow_3(GapThick) * std::abs(Tso - TmpTsBafIn) * pow_2(RhoAir) / (TmeanK * pow_2(nu));
 
         Real64 NuPlen = PassiveGapNusseltNumber(AspRat, Tilt, TmpTsBafIn, Tso, Gr); // intentionally switch Tso to Tsi
-        Real64 HcPlen = NuPlen * (k / GapThick);                                  // surface convection heat transfer coefficient for plenum surfaces
+        Real64 HcPlen = NuPlen * (k / GapThick); // surface convection heat transfer coefficient for plenum surfaces
 
         // ```
         Real64 VdotWind;
@@ -2430,7 +2436,7 @@ namespace TranspiredCollector {
             }
 
             Real64 VdotVent = VdotWind + VdotThermal; // total volume flow rate of nat vent
-            MdotVent = VdotVent * RhoAir;      // total mass flow rate of nat vent
+            MdotVent = VdotVent * RhoAir;             // total mass flow rate of nat vent
         } else {
             // Override with EMS value
             // Convert velocity [m/s] to mass flow rate [kg/s]
@@ -2447,11 +2453,11 @@ namespace TranspiredCollector {
         if (!EMSOverrideOnBaffleTemp) {
             Real64 NumeratorOut;
             if (EMSOverrideOnCladTotSolAbs) {
-                NumeratorOut = (CladTotSolAbs + QdotSource) + (HExt + HrAtm + HrGround) * Tamb +
-                            HrSky * state.dataEnvrn->SkyTemp + BaffleCondCoeff * TsBaffleIn; // Use TsBaffleIn
+                NumeratorOut = (CladTotSolAbs + QdotSource) + (HExt + HrAtm + HrGround) * Tamb + HrSky * state.dataEnvrn->SkyTemp +
+                               BaffleCondCoeff * TsBaffleIn; // Use TsBaffleIn
             } else {
-                NumeratorOut = (Isc * SolAbs + QdotSource) + (HExt + HrAtm + HrGround) * Tamb +
-                            HrSky * state.dataEnvrn->SkyTemp + BaffleCondCoeff * TsBaffleIn; // Use TsBaffleIn
+                NumeratorOut = (Isc * SolAbs + QdotSource) + (HExt + HrAtm + HrGround) * Tamb + HrSky * state.dataEnvrn->SkyTemp +
+                               BaffleCondCoeff * TsBaffleIn; // Use TsBaffleIn
             }
             Real64 DenominatorOut = (HExt + HrAtm + HrSky + HrGround) + BaffleCondCoeff;
             if (std::abs(DenominatorOut) > 1e-9) { // Avoid division by zero

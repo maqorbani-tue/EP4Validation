@@ -12244,6 +12244,14 @@ namespace SurfaceGeometry {
                                  "[W/m2K]", // This is k/L
                                  state.dataSurface->OSCM(OSCMNum).EMSOverrideOnCladThermTrans,
                                  state.dataSurface->OSCM(OSCMNum).CladdingThermalTransmittance);
+                // ``` New EMS actuator for the rolling textile translucency
+                SetupEMSActuator(state,
+                                "SurfaceProperty:ExteriorNaturallyVentedCavity",
+                                state.dataSurface->OSCM(OSCMNum).Name,
+                                "Rolling Textile Translucency",
+                                "[%]", // This is % of translucency
+                                state.dataSurface->OSCM(OSCMNum).EMSOverrideOnRollTextTrans,
+                                state.dataSurface->OSCM(OSCMNum).RollingTextileTranslucency);
                 // ``` End of modification
                                 }
                             }
