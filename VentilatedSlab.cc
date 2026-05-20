@@ -1550,6 +1550,18 @@ namespace VentilatedSlab {
                 thisVentSlab.LastQRadSysSrc.dimension(numRadSurfs, 0.0);
                 thisVentSlab.LastSysTimeElapsed = 0.0;
                 thisVentSlab.LastTimeStepSys = 0.0;
+
+                // ``` New edits to get the energy that the AIS is transferring
+                for (SurfNum = 1; SurfNum <= numRadSurfs; ++SurfNum) {
+                    SetupOutputVariable(state,
+                                        "Zone Ventilated Slab Surface Radiant Rate",
+                                        OutputProcessor::Unit::W,
+                                        state.dataHeatBalFanSys->QRadSysSource(thisVentSlab.SurfacePtr(SurfNum)),
+                                        OutputProcessor::SOVTimeStepType::System,
+                                        OutputProcessor::SOVStoreType::Average,
+                                        thisVentSlab.SurfaceName(SurfNum));
+                    }
+                // ```
             }
             state.dataVentilatedSlab->MyEnvrnFlag = true;
             state.dataVentilatedSlab->MySizeFlag = true;
