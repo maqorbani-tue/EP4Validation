@@ -2193,8 +2193,12 @@ namespace TranspiredCollector {
         }
 
         if (KC == 0) {
-            TsBaffle = LocalOutDryBulbTemp;
-            TaGap = Tamb;
+            if (!EMSOverrideOnBaffleTemp) {
+                TsBaffle = LocalOutDryBulbTemp;
+            }
+            if (!EMSOverrideOnCavityAirTemp) {
+                TaGap = Tamb;
+            }
         }
         // ```
 
@@ -2495,9 +2499,13 @@ namespace TranspiredCollector {
         }
 
         if (KC == 0) {
-            TsBaffleOut = LocalOutDryBulbTemp; // Set OUTSIDE temp to ambient
-            TsBaffleIn = LocalOutDryBulbTemp;  // Set INSIDE temp to ambient
-            TaGap = Tamb;
+            if (!EMSOverrideOnBaffleTemp) {
+                TsBaffleOut = LocalOutDryBulbTemp; // Set OUTSIDE temp to ambient
+                TsBaffleIn = LocalOutDryBulbTemp;  // Set INSIDE temp to ambient
+            }
+            if (!EMSOverrideOnCavityAirTemp) {
+                TaGap = Tamb;
+            }
         }
         // ```
 

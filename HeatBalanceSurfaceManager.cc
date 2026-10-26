@@ -7438,6 +7438,15 @@ void CalcHeatBalanceOutsideSurf(EnergyPlusData &state,
                     state.dataHeatBal->ExtVentedCavity(CavNum).Tbaffle = TempExt; // This is now TbaffleIn
                     state.dataHeatBal->ExtVentedCavity(CavNum).TbaffleOut = TempExt; // This is newly added
 
+                    // Set the inside baffle surface as set in EMS for debugging purposes even if KC = 0
+                    if (state.dataSurface->OSCM(OPtr).EMSOverrideOnBaffleTemp) {
+                        state.dataHeatBal->ExtVentedCavity(CavNum).Tbaffle = state.dataSurface->OSCM(OPtr).BaffleTemp;
+                        // Run the cavity model to ensure HRad is properly computed
+                        if (state.dataSurface->SurfExtCavityPresent(SurfNum)) {
+                            CalcExteriorVentedCavity(state, SurfNum);
+                        }
+                    }
+                    
                     // now do some updates
                     state.dataHeatBal->ExtVentedCavity(CavNum).TairLast = state.dataHeatBal->ExtVentedCavity(CavNum).TAirCav;
                     state.dataHeatBal->ExtVentedCavity(CavNum).TbaffleLast = state.dataHeatBal->ExtVentedCavity(CavNum).Tbaffle;
