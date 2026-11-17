@@ -939,6 +939,7 @@ namespace DataHeatBalance {
         Real64 PassiveMdotVent;  // Total Nat Vent air change rate  [kg/s]
         Real64 PassiveMdotWind;  // Nat Vent air change rate from Wind-driven [kg/s]
         Real64 PassiveMdotTherm; // Nat. Vent air change rate from buoyancy-driven flow [kg/s]
+        ExteriorCavityReporting::BaffleReport heatFlowReport;
 
         // Default Constructor
         ExtVentedCavityStruct()

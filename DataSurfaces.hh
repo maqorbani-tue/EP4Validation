@@ -1427,6 +1427,50 @@ namespace DataSurfaces {
 
 } // namespace DataSurfaces
 
+// Reporting snapshots for the sequential exterior vented cavity calculation.
+// These values are never inputs to a heat balance.
+namespace ExteriorCavityReporting {
+
+struct HeatGain
+{
+    Real64 perArea = 0.0; // W/m2, positive into the named face
+    Real64 rate = 0.0;    // W
+    Real64 energy = 0.0;  // J over the zone timestep
+
+    void set(Real64 const flux, Real64 const area, Real64 const seconds)
+    {
+        perArea = flux;
+        rate = flux * area;
+        energy = rate * seconds;
+    }
+};
+
+struct WallReport
+{
+    HeatGain convection;
+    HeatGain radiation;
+    HeatGain solar;
+    Real64 incident = 0.0; // allocated incident solar, W/m2
+};
+
+struct BaffleReport
+{
+    HeatGain outsideConvection;
+    HeatGain insideConvection;
+    HeatGain outsideRadiation;
+    HeatGain insideRadiation;
+    HeatGain solar;
+    Real64 incident = 0.0; // non-transmitted share of incident solar, W/m2
+    Real64 deployed = 0.0;
+
+    void clear()
+    {
+        *this = BaffleReport{};
+    }
+};
+
+} // namespace ExteriorCavityReporting
+
 struct SurfacesData : BaseGlobalStruct
 {
     int TotSurfaces = 0;             // Total number of surfaces (walls, floors, roofs, windows, shading surfaces, etc.--everything)

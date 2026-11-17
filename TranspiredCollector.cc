@@ -1950,7 +1950,8 @@ namespace TranspiredCollector {
                                       ObjexxFCL::Optional<Real64> IscRpt,
                                       ObjexxFCL::Optional<Real64> MdotVentRpt,
                                       ObjexxFCL::Optional<Real64> VdotWindRpt,
-                                      ObjexxFCL::Optional<Real64> VdotBuoyRpt)
+                                      ObjexxFCL::Optional<Real64> VdotBuoyRpt,
+                                      ExteriorCavityReporting::BaffleReport *heatFlowReport)
     {
 
         // SUBROUTINE INFORMATION:
@@ -2183,6 +2184,21 @@ namespace TranspiredCollector {
 
             TsBaffle = (ICSULossbottom * ICSWaterTemp + HrPlen * Tso + HcPlen * TaGap + QdotSource) / (ICSULossbottom + HrPlen + HcPlen);
         }
+        // Reporting uses the gap temperature that entered the baffle equation, before TaGap is updated.
+        if (heatFlowReport != nullptr) {
+            heatFlowReport->clear();
+            if (KC == 1) {
+                Real64 const seconds = state.dataGlobal->TimeStepZoneSec;
+                heatFlowReport->deployed = 1.0;
+                heatFlowReport->incident = Isc;
+                heatFlowReport->outsideConvection.set(HExt * (Tamb - TsBaffle), A, seconds);
+                heatFlowReport->insideConvection.set(HcPlen * (TaGap - TsBaffle), A, seconds);
+                heatFlowReport->outsideRadiation.set(HrAtm * (Tamb - TsBaffle) + HrSky * (state.dataEnvrn->SkyTemp - TsBaffle) +
+                                                         HrGround * (Tamb - TsBaffle), A, seconds);
+                heatFlowReport->insideRadiation.set(HrPlen * (Tso - TsBaffle), A, seconds);
+                heatFlowReport->solar.set(EMSOverrideOnCladTotSolAbs ? CladTotSolAbs : Isc * SolAbs, A, seconds);
+            }
+        }
         // now calculate gap air temperature
 
         // ```
@@ -2243,7 +2259,8 @@ namespace TranspiredCollector {
                                       ObjexxFCL::Optional<Real64> IscRpt,
                                       ObjexxFCL::Optional<Real64> MdotVentRpt,
                                       ObjexxFCL::Optional<Real64> VdotWindRpt,
-                                      ObjexxFCL::Optional<Real64> VdotBuoyRpt)
+                                      ObjexxFCL::Optional<Real64> VdotBuoyRpt,
+                                      ExteriorCavityReporting::BaffleReport *heatFlowReport)
     {
 
         // SUBROUTINE INFORMATION:
@@ -2488,6 +2505,22 @@ namespace TranspiredCollector {
             }
         } else {
             TsBaffleIn = BaffleTemp; // Use EMS override value
+        }
+
+        // Snapshot both face equations before the sequential gap-air update overwrites TaGap.
+        if (heatFlowReport != nullptr) {
+            heatFlowReport->clear();
+            if (KC == 1) {
+                Real64 const seconds = state.dataGlobal->TimeStepZoneSec;
+                heatFlowReport->deployed = 1.0;
+                heatFlowReport->incident = Isc; // timber model is opaque
+                heatFlowReport->outsideConvection.set(HExt * (Tamb - TsBaffleOut), A, seconds);
+                heatFlowReport->insideConvection.set(HcPlen * (TaGap - TsBaffleIn), A, seconds);
+                heatFlowReport->outsideRadiation.set(HrAtm * (Tamb - TsBaffleOut) + HrSky * (state.dataEnvrn->SkyTemp - TsBaffleOut) +
+                                                         HrGround * (Tamb - TsBaffleOut), A, seconds);
+                heatFlowReport->insideRadiation.set(HrPlen_Adjusted * (Tso - TsBaffleIn), A, seconds);
+                heatFlowReport->solar.set(EMSOverrideOnCladTotSolAbs ? CladTotSolAbs : Isc * SolAbs, A, seconds);
+            }
         }
 
         // 3. Calculate the GAP AIR temperature (using the NEWLY calculated TsBaffleIn)

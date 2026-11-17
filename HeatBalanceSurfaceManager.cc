@@ -1380,6 +1380,7 @@ void AllocateSurfaceHeatBalArrays(EnergyPlusData &state)
     state.dataHeatBalSurf->SurfQdotRadHVACInRep.dimension(state.dataSurface->TotSurfaces, 0.0);
     state.dataHeatBalSurf->SurfQdotRadHVACInPerArea.dimension(state.dataSurface->TotSurfaces, 0.0);
 
+    state.dataHeatBalSurf->SurfExteriorCavityReport.dimension(state.dataSurface->TotSurfaces);
     state.dataHeatBalSurf->SurfQConvOutReport.dimension(state.dataSurface->TotSurfaces, 0.0);
     state.dataHeatBalSurf->SurfQdotConvOutPerArea.dimension(state.dataSurface->TotSurfaces, 0.0);
     state.dataHeatBalSurf->SurfQdotConvOutRep.dimension(state.dataSurface->TotSurfaces, 0.0);
@@ -1669,7 +1670,21 @@ void AllocateSurfaceHeatBalArrays(EnergyPlusData &state)
                             OutputProcessor::SOVStoreType::Summed,
                             surface.Name);
 
-        if (surface.ExtBoundCond == DataSurfaces::ExternalEnvironment || state.dataGlobal->DisplayAdvancedReportVariables) {
+        // Reporting storage is independent of every coefficient and flux used by the solver.
+        bool const reportCavityWall = state.dataSurface->SurfExtCavityPresent.allocated() && state.dataSurface->SurfExtCavityPresent(loop) &&
+                                      surface.HeatTransferAlgorithm == DataSurfaces::HeatTransferModel::CTF &&
+                                      state.dataConstruction->Construct(surface.Construction).CTFCross[0] <= 0.01;
+        auto &cavityWallReport = state.dataHeatBalSurf->SurfExteriorCavityReport(loop);
+        if (reportCavityWall) {
+            SetupOutputVariable(state,
+                                "Surface Exterior Cavity Underlying Surface Incident Solar Radiation Rate per Area",
+                                OutputProcessor::Unit::W_m2,
+                                cavityWallReport.incident,
+                                OutputProcessor::SOVTimeStepType::Zone,
+                                OutputProcessor::SOVStoreType::Average,
+                                surface.Name);
+        }
+        if (surface.ExtBoundCond == DataSurfaces::ExternalEnvironment || state.dataGlobal->DisplayAdvancedReportVariables || reportCavityWall) {
             SetupOutputVariable(state,
                                 "Surface Outside Face Outdoor Air Drybulb Temperature",
                                 OutputProcessor::Unit::C,
@@ -1701,21 +1716,21 @@ void AllocateSurfaceHeatBalArrays(EnergyPlusData &state)
             SetupOutputVariable(state,
                                 "Surface Outside Face Convection Heat Gain Rate",
                                 OutputProcessor::Unit::W,
-                                state.dataHeatBalSurf->SurfQdotConvOutRep(loop),
+                                reportCavityWall ? cavityWallReport.convection.rate : state.dataHeatBalSurf->SurfQdotConvOutRep(loop),
                                 OutputProcessor::SOVTimeStepType::Zone,
                                 OutputProcessor::SOVStoreType::State,
                                 surface.Name);
             SetupOutputVariable(state,
                                 "Surface Outside Face Convection Heat Gain Rate per Area",
                                 OutputProcessor::Unit::W_m2,
-                                state.dataHeatBalSurf->SurfQdotConvOutPerArea(loop),
+                                reportCavityWall ? cavityWallReport.convection.perArea : state.dataHeatBalSurf->SurfQdotConvOutPerArea(loop),
                                 OutputProcessor::SOVTimeStepType::Zone,
                                 OutputProcessor::SOVStoreType::State,
                                 surface.Name);
             SetupOutputVariable(state,
                                 "Surface Outside Face Convection Heat Gain Energy",
                                 OutputProcessor::Unit::J,
-                                state.dataHeatBalSurf->SurfQConvOutReport(loop),
+                                reportCavityWall ? cavityWallReport.convection.energy : state.dataHeatBalSurf->SurfQConvOutReport(loop),
                                 OutputProcessor::SOVTimeStepType::Zone,
                                 OutputProcessor::SOVStoreType::Summed,
                                 surface.Name);
@@ -1729,21 +1744,21 @@ void AllocateSurfaceHeatBalArrays(EnergyPlusData &state)
             SetupOutputVariable(state,
                                 "Surface Outside Face Net Thermal Radiation Heat Gain Rate",
                                 OutputProcessor::Unit::W,
-                                state.dataHeatBalSurf->SurfQdotRadOutRep(loop),
+                                reportCavityWall ? cavityWallReport.radiation.rate : state.dataHeatBalSurf->SurfQdotRadOutRep(loop),
                                 OutputProcessor::SOVTimeStepType::Zone,
                                 OutputProcessor::SOVStoreType::State,
                                 surface.Name);
             SetupOutputVariable(state,
                                 "Surface Outside Face Net Thermal Radiation Heat Gain Rate per Area",
                                 OutputProcessor::Unit::W_m2,
-                                state.dataHeatBalSurf->SurfQdotRadOutRepPerArea(loop),
+                                reportCavityWall ? cavityWallReport.radiation.perArea : state.dataHeatBalSurf->SurfQdotRadOutRepPerArea(loop),
                                 OutputProcessor::SOVTimeStepType::Zone,
                                 OutputProcessor::SOVStoreType::State,
                                 surface.Name);
             SetupOutputVariable(state,
                                 "Surface Outside Face Net Thermal Radiation Heat Gain Energy",
                                 OutputProcessor::Unit::J,
-                                state.dataHeatBalSurf->SurfQRadOutReport(loop),
+                                reportCavityWall ? cavityWallReport.radiation.energy : state.dataHeatBalSurf->SurfQRadOutReport(loop),
                                 OutputProcessor::SOVTimeStepType::Zone,
                                 OutputProcessor::SOVStoreType::Summed,
                                 surface.Name);
@@ -1787,21 +1802,21 @@ void AllocateSurfaceHeatBalArrays(EnergyPlusData &state)
                 SetupOutputVariable(state,
                                     "Surface Outside Face Solar Radiation Heat Gain Rate",
                                     OutputProcessor::Unit::W,
-                                    state.dataHeatBal->SurfOpaqSWOutAbsTotalReport(loop),
+                                    reportCavityWall ? cavityWallReport.solar.rate : state.dataHeatBal->SurfOpaqSWOutAbsTotalReport(loop),
                                     OutputProcessor::SOVTimeStepType::Zone,
                                     OutputProcessor::SOVStoreType::Average,
                                     surface.Name);
                 SetupOutputVariable(state,
                                     "Surface Outside Face Solar Radiation Heat Gain Rate per Area",
                                     OutputProcessor::Unit::W_m2,
-                                    state.dataHeatBalSurf->SurfOpaqQRadSWOutAbs(loop),
+                                    reportCavityWall ? cavityWallReport.solar.perArea : state.dataHeatBalSurf->SurfOpaqQRadSWOutAbs(loop),
                                     OutputProcessor::SOVTimeStepType::Zone,
                                     OutputProcessor::SOVStoreType::Average,
                                     surface.Name);
                 SetupOutputVariable(state,
                                     "Surface Outside Face Solar Radiation Heat Gain Energy",
                                     OutputProcessor::Unit::J,
-                                    state.dataHeatBal->SurfOpaqSWOutAbsEnergyReport(loop),
+                                    reportCavityWall ? cavityWallReport.solar.energy : state.dataHeatBal->SurfOpaqSWOutAbsEnergyReport(loop),
                                     OutputProcessor::SOVTimeStepType::Zone,
                                     OutputProcessor::SOVStoreType::Summed,
                                     surface.Name);
@@ -7168,6 +7183,9 @@ void CalcHeatBalanceOutsideSurf(EnergyPlusData &state,
                 }
                 
                 // This if if else statement has been added ```
+                if (KC == 0 && state.dataSurface->SurfExtCavityPresent(SurfNum)) {
+                    state.dataHeatBal->ExtVentedCavity(state.dataSurface->SurfExtCavNum(SurfNum)).heatFlowReport.clear();
+                }
                 if (KC == 1) {  // Meaning that the Kinetic Cladding is going to be there as an ExVC
                     // int OPtr = Surface(SurfNum).OSCMPtr;  // This was redundant
                     // EMS overrides
@@ -9730,6 +9748,13 @@ void CalcOutsideSurfTemp(EnergyPlusData &state,
         TGround = state.dataSurface->GroundSurfsProperty(surface.SurfPropertyGndSurfIndex).SurfsTempAvg;
     }
 
+    Real64 cavitySolarForReport = 0.0;
+    Real64 cavityRadCoeffForReport = 0.0;
+    Real64 cavityRadTempForReport = 0.0;
+    Real64 cavitySkyCoeffForReport = 0.0;
+    Real64 cavityGroundCoeffForReport = 0.0;
+    bool cavityOpenRadiationForReport = false;
+
     // Now, calculate the outside surface temperature using the proper heat balance equation.
     // Each case has been separated out into its own IF-THEN block for clarity.  Additional
     // cases can simply be added anywhere in the following section.  This is the last step
@@ -9807,10 +9832,13 @@ void CalcOutsideSurfTemp(EnergyPlusData &state,
             // ```
             // local copies of variables for clarity in radiation terms
             // TODO: - int OSCMPtr; // "Pointer" to OSCM data structure (other side conditions from a model)
+            cavitySolarForReport = SurfTotSolAbs;
             if (KC == 1) {
                 Real64 RadTemp =
                     state.dataSurface->OSCM(surface.OSCMPtr).TRad; // local value for Effective radiation temperature for OtherSideConditions model
                 Real64 HRad = state.dataSurface->OSCM(surface.OSCMPtr).HRad; // local value for effective (linearized) radiation coefficient
+                cavityRadCoeffForReport = HRad;
+                cavityRadTempForReport = RadTemp;
 
                 // If louvre is partially open, although the Kinetic Cladding is assumed to be present (KC = 1) --> only louver-based claddings
                 if (state.dataSurface->OSCM(surface.OSCMPtr).EMSOverrideOnSurfSkyExpos && 
@@ -9880,6 +9908,13 @@ void CalcOutsideSurfTemp(EnergyPlusData &state,
                     if (vfGround > 0) {
                         HGrnd = state.dataHeatBalSurf->SurfHGrdExt(SurfNum) * (SurfGroundExpos / vfGround);
                     }
+
+                    // Snapshot this branch's radiation operands without changing the temperature equation or legacy arrays.
+                    cavityRadCoeffForReport = HRad;
+                    cavityRadTempForReport = RadTemp;
+                    cavitySkyCoeffForReport = HSky;
+                    cavityGroundCoeffForReport = HGrnd;
+                    cavityOpenRadiationForReport = true;
 
                     // implement the new TH11 here (KC = 0, but there is also some view factor with the cladding)
                     if (construct.SourceSinkPresent) {
@@ -10039,6 +10074,31 @@ void CalcOutsideSurfTemp(EnergyPlusData &state,
           state.dataHeatBalSurf->SurfHGrdExt(SurfNum) * (TH11 - TGround) + state.dataHeatBalSurf->SurfHSrdSurfExt(SurfNum) * (TH11 - TSrdSurfs)));
           state.dataHeatBalSurf->SurfQdotRadOutRepPerArea(SurfNum) = HExtSurf_fac;
 
+    // Capture the supported wall equation's actual operands, including its sequentially lagged convection.
+    if (surface.HeatTransferAlgorithm == DataSurfaces::HeatTransferModel::CTF && !MovInsulPresent && !QuickConductionSurf &&
+        surface.OSCMPtr > 0 && state.dataSurface->SurfExtCavityPresent.allocated() && state.dataSurface->SurfExtCavityPresent(SurfNum) &&
+        state.dataHeatBalSurf->SurfExteriorCavityReport.allocated()) {
+        auto &report = state.dataHeatBalSurf->SurfExteriorCavityReport(SurfNum);
+        Real64 const seconds = state.dataGlobal->TimeStepZoneSec;
+        report.convection.set(state.dataHeatBalSurf->SurfHConvExt(SurfNum) * (TempExt - TH11), surface.Area, seconds);
+        Real64 radiationForReport = HExtSurf_fac;
+        if (KC == 1) {
+            radiationForReport = cavityRadCoeffForReport * (cavityRadTempForReport - TH11);
+        } else if (cavityOpenRadiationForReport) {
+            radiationForReport = cavitySkyCoeffForReport * (TSky - TH11) + cavityGroundCoeffForReport * (TGround - TH11) +
+                                 cavityRadCoeffForReport * (cavityRadTempForReport - TH11) +
+                                 state.dataHeatBalSurf->SurfHAirExt(SurfNum) * (TempExt - TH11) +
+                                 state.dataHeatBalSurf->SurfHSrdSurfExt(SurfNum) * (TSrdSurfs - TH11);
+        }
+        report.radiation.set(radiationForReport, surface.Area, seconds);
+        report.solar.set(KC == 1 ? cavitySolarForReport : state.dataHeatBalSurf->SurfOpaqQRadSWOutAbs(SurfNum), surface.Area, seconds);
+        auto const &oscm = state.dataSurface->OSCM(surface.OSCMPtr);
+        Real64 const transmittedFraction = !oscm.EMSOverrideOnCladThermTrans && oscm.EMSOverrideOnRollTextTrans
+                                               ? oscm.RollingTextileTranslucency : 0.0;
+        report.incident = state.dataHeatBal->SurfQRadSWOutIncident(SurfNum) * (KC == 0 ? 1.0 : transmittedFraction);
+    }
+
+
     // Set the radiant system heat balance coefficients if this surface is also a radiant system
     if (construct.SourceSinkPresent) {
 
@@ -10171,7 +10231,8 @@ void CalcExteriorVentedCavity(EnergyPlusData &state, int const SurfNum) // index
                                                               Isc,
                                                               MdotVent,
                                                               VdotWind,
-                                                              VdotThermal);
+                                                              VdotThermal,
+                                                              &state.dataHeatBal->ExtVentedCavity(CavNum).heatFlowReport);
 
         } // sequential solution
     
@@ -10210,7 +10271,8 @@ void CalcExteriorVentedCavity(EnergyPlusData &state, int const SurfNum) // index
                                                               Isc,
                                                               MdotVent,
                                                               VdotWind,
-                                                              VdotThermal);
+                                                              VdotThermal,
+                                                              &state.dataHeatBal->ExtVentedCavity(CavNum).heatFlowReport);
 
 
         } // sequential solution

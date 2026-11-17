@@ -111,6 +111,7 @@ struct HeatBalSurfData : BaseGlobalStruct
     Array1D<Real64> SurfTempInsOld;       // SurfTempIn from previous iteration for convergence check
     Array1D<Real64> SurfTempInTmp;        // Inside Surface Temperature Of Each Heat Transfer Surface
     Array1D<Real64> SurfHConvExt;         // Outside Convection Coefficient
+    Array1D<ExteriorCavityReporting::WallReport> SurfExteriorCavityReport; // reporting only; not used by the solver
     Array1D<Real64> SurfWinCoeffAdjRatio; // Convective Coefficient Adjustment Ratio assuming highly conductive frames
                                           // Only applicable for exterior window surfaces
     Array1D<Real64> SurfHAirExt;          // Outside Radiation Coefficient to Air

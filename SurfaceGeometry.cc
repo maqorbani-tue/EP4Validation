@@ -7964,6 +7964,32 @@ namespace SurfaceGeometry {
             state.dataHeatBal->ExtVentedCavity(Item).ActualArea =
                 state.dataHeatBal->ExtVentedCavity(Item).ProjArea * state.dataHeatBal->ExtVentedCavity(Item).AreaRatio;
 
+            // These zone-timestep snapshots are independent of the legacy cavity temperatures and solver inputs.
+            auto &heatFlowReport = state.dataHeatBal->ExtVentedCavity(Item).heatFlowReport;
+            auto setupHeatGain = [&](std::string const &face, ExteriorCavityReporting::HeatGain &gain) {
+                std::string const prefix = "Surface Exterior Cavity " + face + " Heat Gain";
+                SetupOutputVariable(state, prefix + " Rate", OutputProcessor::Unit::W, gain.rate,
+                                    OutputProcessor::SOVTimeStepType::Zone, OutputProcessor::SOVStoreType::Average,
+                                    state.dataHeatBal->ExtVentedCavity(Item).Name);
+                SetupOutputVariable(state, prefix + " Rate per Area", OutputProcessor::Unit::W_m2, gain.perArea,
+                                    OutputProcessor::SOVTimeStepType::Zone, OutputProcessor::SOVStoreType::Average,
+                                    state.dataHeatBal->ExtVentedCavity(Item).Name);
+                SetupOutputVariable(state, prefix + " Energy", OutputProcessor::Unit::J, gain.energy,
+                                    OutputProcessor::SOVTimeStepType::Zone, OutputProcessor::SOVStoreType::Summed,
+                                    state.dataHeatBal->ExtVentedCavity(Item).Name);
+            };
+            setupHeatGain("Baffle Outside Face Convection", heatFlowReport.outsideConvection);
+            setupHeatGain("Baffle Inside Face Convection", heatFlowReport.insideConvection);
+            setupHeatGain("Baffle Outside Face Net Thermal Radiation", heatFlowReport.outsideRadiation);
+            setupHeatGain("Baffle Inside Face Net Thermal Radiation", heatFlowReport.insideRadiation);
+            setupHeatGain("Baffle Outside Face Solar Radiation", heatFlowReport.solar);
+            SetupOutputVariable(state, "Surface Exterior Cavity Baffle Outside Face Incident Solar Radiation Rate per Area",
+                                OutputProcessor::Unit::W_m2, heatFlowReport.incident, OutputProcessor::SOVTimeStepType::Zone,
+                                OutputProcessor::SOVStoreType::Average, state.dataHeatBal->ExtVentedCavity(Item).Name);
+            SetupOutputVariable(state, "Surface Exterior Cavity Kinetic Cladding Deployment Status",
+                                OutputProcessor::Unit::None, heatFlowReport.deployed, OutputProcessor::SOVTimeStepType::Zone,
+                                OutputProcessor::SOVStoreType::Average, state.dataHeatBal->ExtVentedCavity(Item).Name);
+
             SetupOutputVariable(state,
                                 "Surface Exterior Cavity Baffle Surface Temperature", // This is now Tbaffle_In
                                 OutputProcessor::Unit::C,

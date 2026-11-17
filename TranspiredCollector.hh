@@ -61,6 +61,9 @@ namespace EnergyPlus {
 
 // Forward declarations
 struct EnergyPlusData;
+namespace ExteriorCavityReporting {
+struct BaffleReport;
+}
 
 namespace TranspiredCollector {
 
@@ -233,7 +236,8 @@ namespace TranspiredCollector {
                                       ObjexxFCL::Optional<Real64> IscRpt = _,
                                       ObjexxFCL::Optional<Real64> MdotVentRpt = _,
                                       ObjexxFCL::Optional<Real64> VdotWindRpt = _,
-                                      ObjexxFCL::Optional<Real64> VdotBuoyRpt = _);
+                                      ObjexxFCL::Optional<Real64> VdotBuoyRpt = _,
+                                      ExteriorCavityReporting::BaffleReport *heatFlowReport = nullptr);
 
     void CalcPassiveExteriorBaffleGap(EnergyPlusData &state,
                                       const Array1D_int &SurfPtrARR, // Array of indexes pointing to Surface structure in DataSurfaces
@@ -267,7 +271,8 @@ namespace TranspiredCollector {
                                       ObjexxFCL::Optional<Real64> IscRpt = _,
                                       ObjexxFCL::Optional<Real64> MdotVentRpt = _,
                                       ObjexxFCL::Optional<Real64> VdotWindRpt = _,
-                                      ObjexxFCL::Optional<Real64> VdotBuoyRpt = _);
+                                      ObjexxFCL::Optional<Real64> VdotBuoyRpt = _,
+                                      ExteriorCavityReporting::BaffleReport *heatFlowReport = nullptr);
 
     //****************************************************************************
 
